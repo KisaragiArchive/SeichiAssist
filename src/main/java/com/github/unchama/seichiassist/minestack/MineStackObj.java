@@ -1,6 +1,7 @@
 package com.github.unchama.seichiassist.minestack;
 
 import java.util.List;
+import java.util.Objects;
 
 import org.bukkit.Material;
 import org.bukkit.enchantments.*;
@@ -121,5 +122,26 @@ public class MineStackObj implements Comparable<MineStackObj>{
 	}
 
 
+	@Override
+	public boolean equals(Object o) {
+		if (this == o) return true;
+		if (o == null || getClass() != o.getClass()) return false;
+		MineStackObj that = (MineStackObj) o;
+		return level == that.level &&
+				durability == that.durability &&
+				nameloreflag == that.nameloreflag &&
+				gachatype == that.gachatype &&
+				stacktype == that.stacktype &&
+				Objects.equals(objname, that.objname) &&
+				Objects.equals(japanesename, that.japanesename) &&
+				material == that.material &&
+				Objects.equals(lore, that.lore) &&
+				Objects.equals(itemstack, that.itemstack) &&
+				needed_enchantment.equals(that.needed_enchantment);
+	}
 
+	@Override
+	public int hashCode() {
+		return Objects.hash(objname, japanesename, level, material, durability, nameloreflag, gachatype, lore, itemstack, stacktype, needed_enchantment);
+	}
 }
