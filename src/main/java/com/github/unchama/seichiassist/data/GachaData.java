@@ -2,6 +2,7 @@ package com.github.unchama.seichiassist.data;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 import org.bukkit.ChatColor;
 import org.bukkit.inventory.ItemStack;
@@ -22,7 +23,23 @@ public class GachaData {
 		probability = 0.0;
 		amount = 0;
 	}
-	public GachaData(ItemStack _itemstack,double _probability,int _amount){
+
+	@Override
+	public boolean equals(Object o) {
+		if (this == o) return true;
+		if (o == null || getClass() != o.getClass()) return false;
+		GachaData gachaData = (GachaData) o;
+		return Double.compare(gachaData.probability, probability) == 0 &&
+				amount == gachaData.amount &&
+				itemstack.equals(gachaData.itemstack);
+	}
+
+	@Override
+	public int hashCode() {
+		return Objects.hash(itemstack, probability, amount);
+	}
+
+	public GachaData(ItemStack _itemstack, double _probability, int _amount){
 		itemstack = _itemstack.clone();
 		probability = _probability;
 		amount = _amount;
@@ -82,4 +99,6 @@ public class GachaData {
 		meta.setLore(lore);
 		this.itemstack.setItemMeta(meta);
 	}
+
+
 }
