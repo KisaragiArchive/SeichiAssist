@@ -1,6 +1,6 @@
-name: SeichiAssist
+name: @name@
 main: com.github.unchama.seichiassist.SeichiAssist
-version: 0.9.34
+version: @version@
 
 commands:
   gacha:
@@ -82,4 +82,9 @@ commands:
       description: This is a MineHead command.
       usage: /<command>
       permission: multiseichiplugin.minehead
+      permission-message: You don't have <permission>
+  x-transfer:
+      description: Helps region owner tranship.
+      usage: /<command> [region name] [new owner name]
+      permission: multiseichiplugin.x-transfer
       permission-message: You don't have <permission>

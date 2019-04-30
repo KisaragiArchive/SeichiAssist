@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
+import com.github.unchama.seichiassist.Worlds;
 import org.apache.commons.codec.DecoderException;
 import org.apache.commons.codec.binary.Hex;
 import org.bukkit.Bukkit;
@@ -356,7 +357,7 @@ public class PlayerData {
 		//破壊量データ(before)を設定
 		//minuteblock.before = totalbreaknum;
 		halfhourblock.before = totalbreaknum;
-		updataLevel(player);
+		updateLevel(player);
 		NotifySorryForBug(player);
 		activeskilldata.updateonJoin(player, level);
 		//サーバー保管経験値をクライアントに読み込み
@@ -412,7 +413,7 @@ public class PlayerData {
 
 
 	//レベルを更新
-	public void updataLevel(Player p) {
+	public void updateLevel(Player p) {
 		calcPlayerLevel(p);
 		calcStarLevel(p);
 		setDisplayName(p);
@@ -617,12 +618,15 @@ public class PlayerData {
 			break;
 		}
 
-		if(!Util.isSeichiWorld(p)){
+		if (!Util.isSeichiWorld(p)) {
 			//整地ワールド外では整地数が反映されない
 			result *= 0.0;
-		}else if(p.getWorld().getName().equalsIgnoreCase("world_sw_zero")){
-			//整地ワールドzeroでは整地量2.0倍
-			result *= 2.0;
+		} else {
+			final String worldName = p.getWorld().getName();
+			final double sw_mining_coefficient = 0.8;
+			if (worldName.equalsIgnoreCase(Worlds.WORLD_SW.getAlphabetName())) {
+				result *= sw_mining_coefficient;
+			}
 		}
 		return result;
 	}

@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
 
+import com.github.unchama.seichiassist.database.DatabaseGateway;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -21,11 +22,10 @@ import org.bukkit.potion.PotionType;
 
 import com.github.unchama.seichiassist.ActiveSkill;
 import com.github.unchama.seichiassist.SeichiAssist;
-import com.github.unchama.seichiassist.Sql;
 
 public class ActiveSkillInventoryData {
 	static HashMap<UUID, PlayerData> playermap = SeichiAssist.playermap;
-	static Sql sql = SeichiAssist.sql;
+	static DatabaseGateway databaseGateway = SeichiAssist.databaseGateway;
 	SeichiAssist plugin = SeichiAssist.instance;
 
 	//アクティブスキルメニュー
@@ -692,7 +692,7 @@ public class ActiveSkillInventoryData {
 			lore = Arrays.asList(ChatColor.RESET + "" +  ChatColor.GREEN + "周囲の水7×7×7ブロックを凍らせます"
 					, ChatColor.RESET + "" +  ChatColor.DARK_GRAY + "クールダウン：なし"
 					, ChatColor.RESET + "" +  ChatColor.BLUE + "消費マナ：30"
-					, ChatColor.RESET + "" +  ChatColor.YELLOW + "必要アクティブスキルポイント：20"
+					, ChatColor.RESET + "" +  ChatColor.YELLOW + "必要アクティブスキルポイント：70"
 					, ChatColor.RESET + "" +  ChatColor.DARK_RED + "前提スキル：エクスプロージョン"
 					, ChatColor.RESET + "" +  ChatColor.AQUA + "" + ChatColor.UNDERLINE + "クリックで解除");
 			itemmeta.setLore(lore);
@@ -719,7 +719,7 @@ public class ActiveSkillInventoryData {
 			lore = Arrays.asList(ChatColor.RESET + "" +  ChatColor.GREEN + "周囲の水11×11×11ブロックを凍らせます"
 					, ChatColor.RESET + "" +  ChatColor.DARK_GRAY + "クールダウン：なし"
 					, ChatColor.RESET + "" +  ChatColor.BLUE + "消費マナ：80"
-					, ChatColor.RESET + "" +  ChatColor.YELLOW + "必要アクティブスキルポイント：40"
+					, ChatColor.RESET + "" +  ChatColor.YELLOW + "必要アクティブスキルポイント：80"
 					, ChatColor.RESET + "" +  ChatColor.DARK_RED + "前提スキル：ホワイト・ブレス"
 					, ChatColor.RESET + "" +  ChatColor.AQUA + "" + ChatColor.UNDERLINE + "クリックで解除");
 			itemmeta.setLore(lore);
@@ -746,7 +746,7 @@ public class ActiveSkillInventoryData {
 			lore = Arrays.asList(ChatColor.RESET + "" +  ChatColor.GREEN + "周囲の水15×15×15ブロックを凍らせます"
 					, ChatColor.RESET + "" +  ChatColor.DARK_GRAY + "クールダウン：なし"
 					, ChatColor.RESET + "" +  ChatColor.BLUE + "消費マナ：160"
-					, ChatColor.RESET + "" +  ChatColor.YELLOW + "必要アクティブスキルポイント：70"
+					, ChatColor.RESET + "" +  ChatColor.YELLOW + "必要アクティブスキルポイント：90"
 					, ChatColor.RESET + "" +  ChatColor.DARK_RED + "前提スキル：アブソリュート・ゼロ"
 					, ChatColor.RESET + "" +  ChatColor.AQUA + "" + ChatColor.UNDERLINE + "クリックで解除");
 			itemmeta.setLore(lore);

@@ -4,6 +4,7 @@ package com.github.unchama.seichiassist.task;
 import java.util.HashMap;
 import java.util.UUID;
 
+import com.github.unchama.seichiassist.database.DatabaseGateway;
 import org.bukkit.ChatColor;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
@@ -14,7 +15,6 @@ import org.bukkit.scheduler.BukkitRunnable;
 
 import com.github.unchama.seichiassist.Config;
 import com.github.unchama.seichiassist.SeichiAssist;
-import com.github.unchama.seichiassist.Sql;
 import com.github.unchama.seichiassist.commands.GiganticFeverCommand;
 import com.github.unchama.seichiassist.data.EffectData;
 import com.github.unchama.seichiassist.data.PlayerData;
@@ -29,7 +29,7 @@ public class MinuteTaskRunnable extends BukkitRunnable{
 	private SeichiAssist plugin = SeichiAssist.instance;
 	private HashMap<UUID, PlayerData> playermap = SeichiAssist.playermap;
 	private Config config = SeichiAssist.config;
-	Sql sql = SeichiAssist.sql;
+	DatabaseGateway databaseGateway = SeichiAssist.databaseGateway;
 	public static int time = 0;
 
 	//newインスタンスが立ち上がる際に変数を初期化したり代入したりする処理
@@ -79,9 +79,9 @@ public class MinuteTaskRunnable extends BukkitRunnable{
 			//総整地量を更新(返り血で重み分け済みの1分間のブロック破壊量が返ってくる)
 			int increase = playerdata.calcMineBlock(player);
 			//Levelを設定(必ず総整地量更新後に実施！)
-			playerdata.updataLevel(player);
+			playerdata.updateLevel(player);
 			//activeskillpointを設定
-			playerdata.activeskilldata.updataActiveSkillPoint(player,playerdata.level);
+			playerdata.activeskilldata.updateActiveSkillPoint(player,playerdata.level);
 			//総プレイ時間更新
 			playerdata.calcPlayTick(player);
 

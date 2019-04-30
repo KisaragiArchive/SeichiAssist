@@ -17,14 +17,14 @@ import org.bukkit.inventory.ItemStack;
 
 import com.github.unchama.seichiassist.ActiveSkill;
 import com.github.unchama.seichiassist.SeichiAssist;
-import com.github.unchama.seichiassist.Sql;
+import com.github.unchama.seichiassist.database.DatabaseGateway;
 import com.github.unchama.seichiassist.data.PlayerData;
 import com.github.unchama.seichiassist.util.Util;
 
 public class PlayerJoinListener implements Listener {
 	private SeichiAssist plugin = SeichiAssist.instance;
 	private HashMap<UUID, PlayerData> playermap = SeichiAssist.playermap;
-	private Sql sql = SeichiAssist.sql;
+	private DatabaseGateway databaseGateway = SeichiAssist.databaseGateway;
 
 	// プレイヤーがjoinした時に実行
 	@EventHandler
@@ -34,7 +34,7 @@ public class PlayerJoinListener implements Listener {
 
 		// プレイヤーデータ作成
 		// 新しく作成したPlayerDataを引数とする
-		sql.loadPlayerData(new PlayerData(player));
+		databaseGateway.playerDataManipulator.loadPlayerData(new PlayerData(player));
 
 		// 初見さんへの処理
 
@@ -91,7 +91,7 @@ public class PlayerJoinListener implements Listener {
 					// メッセージを表示
 					p.sendMessage(ChatColor.GOLD + ActiveSkill.getActiveSkillName(pd.activeskilldata.assaulttype, pd.activeskilldata.assaultnum) + "：OFF");
 					// 内部状態をアサルトOFFに変更
-					pd.activeskilldata.updataAssaultSkill(p, pd.activeskilldata.assaulttype, pd.activeskilldata.assaultnum, 0);
+					pd.activeskilldata.updateAssaultSkill(p, pd.activeskilldata.assaulttype, pd.activeskilldata.assaultnum, 0);
 					// トグル音を鳴らす
 					p.playSound(p.getLocation(), Sound.BLOCK_LEVER_CLICK, 1, 1);
 				}
