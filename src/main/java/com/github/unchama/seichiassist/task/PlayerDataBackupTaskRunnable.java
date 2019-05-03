@@ -47,8 +47,20 @@ public class PlayerDataBackupTaskRunnable extends BukkitRunnable{
 		Util.sendEveryMessage(ChatColor.AQUA + "プレイヤーデータセーブ完了");
 		plugin.getServer().getConsoleSender().sendMessage(ChatColor.AQUA + "プレイヤーデータセーブ完了");
 
-		//ランキングリストを最新情報に更新する
-		if(!databaseGateway.playerDataManipulator.updateAllRankingList()){
+		//ランキングデータをセット
+		if(!databaseGateway.playerDataManipulator.setRanking()){
+			plugin.getLogger().info("ランキングデータの作成に失敗しました");
+		}
+
+		if(!databaseGateway.playerDataManipulator.setPlayTickRanking()){
+			plugin.getLogger().info("ランキングデータの作成に失敗しました");
+		}
+
+		if(!databaseGateway.playerDataManipulator.setVoteNumberRanking()){
+			plugin.getLogger().info("ランキングデータの作成に失敗しました");
+		}
+
+		if(!databaseGateway.playerDataManipulator.setPremiumEffectPointRanking()){
 			plugin.getLogger().info("ランキングデータの作成に失敗しました");
 		}
 	}

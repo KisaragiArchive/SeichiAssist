@@ -1,16 +1,19 @@
 package com.github.unchama.seichiassist.data;
 
+import java.util.HashMap;
+import java.util.Map;
+
+import net.md_5.bungee.api.ChatColor;
+
+import org.bukkit.Sound;
+import org.bukkit.entity.Player;
+import org.bukkit.scheduler.BukkitTask;
+
 import com.github.unchama.seichiassist.ActiveSkill;
 import com.github.unchama.seichiassist.ActiveSkillEffect;
 import com.github.unchama.seichiassist.ActiveSkillPremiumEffect;
 import com.github.unchama.seichiassist.SeichiAssist;
 import com.github.unchama.seichiassist.task.AssaultTaskRunnable;
-import net.md_5.bungee.api.ChatColor;
-import org.bukkit.Sound;
-import org.bukkit.entity.Player;
-import org.bukkit.scheduler.BukkitTask;
-
-import java.util.HashSet;
 
 public class ActiveSkillData {
 	SeichiAssist plugin = SeichiAssist.instance;
@@ -51,9 +54,9 @@ public class ActiveSkillData {
 	//アサルトスキルのフラグ
 	public boolean assaultflag;
 	//エフェクトの獲得フラグリスト<エフェクト番号,エフェクト獲得フラグ>
-	public HashSet<ActiveSkillEffect> obtainedSkillEffects = new HashSet<>();
+	public Map<Integer,Boolean> effectflagmap;
 	//スペシャルエフェクトの獲得フラグリスト<エフェクト番号,エフェクト獲得フラグ>
-	public HashSet<ActiveSkillPremiumEffect> obtainedSkillPremiumEffects = new HashSet<>();
+	public Map<Integer,Boolean> premiumeffectflagmap;
 	//スペシャルエフェクトを使用するフラグ
 	public boolean specialflag;
 	//選択されているアクティブスキルの番号を格納
@@ -84,7 +87,17 @@ public class ActiveSkillData {
 		lavacondenskill = 0;
 		fluidcondenskill = 0;
 		effectnum = 0;
+		effectflagmap = new HashMap<>();
+		premiumeffectflagmap = new HashMap<>();
 
+		ActiveSkillEffect[] activeskilleffect = ActiveSkillEffect.values();
+		for (final ActiveSkillEffect activeSkillEffect : activeskilleffect) {
+			effectflagmap.put(activeSkillEffect.getNum(), false);
+		}
+		ActiveSkillPremiumEffect[] activeskillpremiumeffect = ActiveSkillPremiumEffect.values();
+		for (final ActiveSkillPremiumEffect activeSkillPremiumEffect : activeskillpremiumeffect) {
+			premiumeffectflagmap.put(activeSkillPremiumEffect.getNum(), false);
+		}
 		area = null;
 		assaultarea = null;
 

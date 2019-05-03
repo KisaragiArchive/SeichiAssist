@@ -1,13 +1,14 @@
 package com.github.unchama.seichiassist.listener;
 
-import com.github.unchama.seichiassist.SeichiAssist;
-import com.github.unchama.seichiassist.data.PlayerData;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
+
+import com.github.unchama.seichiassist.SeichiAssist;
+import com.github.unchama.seichiassist.data.PlayerData;
 
 /**
  * Created by karayuu on 2018/06/17
@@ -25,12 +26,14 @@ public class PlayerChatEventListener implements Listener {
 		}
 
 		int n = data.setHomeNameNum;
+		if(event.getMessage().contains(",")){
+			player.sendMessage(ChatColor.RED + "名前に[,]を使用することはできません");
+		}else{
+			data.subhome_name[n] = event.getMessage();
 
-		data.setSubHomeName(event.getMessage(), n);
-
-		player.sendMessage(ChatColor.GREEN + "サブホームポイント" + (n+1) + "の名前を");
-		player.sendMessage(ChatColor.GREEN + event.getMessage() + "に更新しました");
-
+			player.sendMessage(ChatColor.GREEN + "サブホームポイント" + (n+1) + "の名前を");
+			player.sendMessage(ChatColor.GREEN + event.getMessage() + "に更新しました");
+		}
 		data.isSubHomeNameChange = false;
 		event.setCancelled(true);
 	}
