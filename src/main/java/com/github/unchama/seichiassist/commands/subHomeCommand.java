@@ -1,9 +1,9 @@
 package com.github.unchama.seichiassist.commands;
 
-import com.github.unchama.seichiassist.SeichiAssist;
-import com.github.unchama.seichiassist.data.PlayerData;
+import java.util.List;
+import java.util.UUID;
+
 import com.github.unchama.seichiassist.util.TypeConverter;
-import com.github.unchama.seichiassist.util.Util;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
@@ -13,8 +13,9 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabExecutor;
 import org.bukkit.entity.Player;
 
-import java.util.List;
-import java.util.UUID;
+import com.github.unchama.seichiassist.SeichiAssist;
+import com.github.unchama.seichiassist.data.PlayerData;
+import com.github.unchama.seichiassist.util.Util;
 
 public class subHomeCommand implements TabExecutor {
 	SeichiAssist plugin;
@@ -53,7 +54,7 @@ public class subHomeCommand implements TabExecutor {
 			try{
 				int num = TypeConverter.toInt(args[0]);
 				if(num >= 1 && maxsubhome >= num){
-					Location l = playerdata.getSubHomeLocation(num-1);
+					Location l = playerdata.GetSubHome(num-1);
 					if(l != null){
 						World world = Bukkit.getWorld(l.getWorld().getName());
 						if(world != null){
@@ -83,7 +84,7 @@ public class subHomeCommand implements TabExecutor {
 				int num = TypeConverter.toInt(args[1]);
 				if(num >= 1 && maxsubhome >= num){
 					if(args[0].equalsIgnoreCase("set")){
-						playerdata.setSubHomeLocation(player.getLocation(), num-1);
+						playerdata.SetSubHome(player.getLocation(), num-1);
 						player.sendMessage("現在位置をサブホームポイント"+(num)+"に設定しました");
 						return true;
 					}

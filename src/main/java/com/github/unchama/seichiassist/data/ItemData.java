@@ -1,6 +1,5 @@
 package com.github.unchama.seichiassist.data;
 
-import com.github.unchama.seichiassist.Skulls;
 import com.github.unchama.seichiassist.util.*;
 import org.bukkit.*;
 import org.bukkit.enchantments.*;
@@ -37,7 +36,7 @@ public class ItemData {
 				, ChatColor.RESET + "" + ChatColor.DARK_GREEN + "所有者：" + name
 				, ChatColor.RESET + "" + ChatColor.DARK_RED + "レベルアップ記念です");
 		skullmeta.setLore(lore);
-		skullmeta.setOwningPlayer(Bukkit.getOfflinePlayer(Skulls.UNCHAMA.getUuid()));
+		skullmeta.setOwner("unchama");
 		skull.setItemMeta(skullmeta);
 		return skull;
 	}

@@ -441,8 +441,9 @@ public class PlayerDataManipulator {
     }
 
     //ランキング表示用に総破壊ブロック数のカラムだけ全員分引っ張る
-    private boolean updateBlockRankingList() {
-        List<RankData> ranklist = new ArrayList<>();
+    public boolean setRanking() {
+        List<RankData> ranklist = SeichiAssist.ranklist;
+        ranklist.clear();
         SeichiAssist.allplayerbreakblockint = 0;
         String command = "select name,level,totalbreaknum from " + getTableReference()
                 + " order by totalbreaknum desc";
@@ -460,14 +461,13 @@ public class PlayerDataManipulator {
             e.printStackTrace();
             return false;
         }
-        SeichiAssist.ranklist.clear();
-        SeichiAssist.ranklist.addAll(ranklist);
         return true;
     }
 
     //ランキング表示用にプレイ時間のカラムだけ全員分引っ張る
-    private boolean updatePlayTickRankingList() {
-        List<RankData> ranklist = new ArrayList<>();
+    public boolean setPlayTickRanking() {
+        List<RankData> ranklist = SeichiAssist.ranklist_playtick;
+        ranklist.clear();
         String command = "select name,playtick from " + getTableReference()
                 + " order by playtick desc";
         try (ResultSet lrs = gateway.executeQuery(command)){
@@ -482,14 +482,13 @@ public class PlayerDataManipulator {
             e.printStackTrace();
             return false;
         }
-        SeichiAssist.ranklist_playtick.clear();
-        SeichiAssist.ranklist_playtick.addAll(ranklist);
         return true;
     }
 
     //ランキング表示用に投票数のカラムだけ全員分引っ張る
-    private boolean updateVoteRankingList() {
-        List<RankData> ranklist = new ArrayList<>();
+    public boolean setVoteNumberRanking() {
+        List<RankData> ranklist = SeichiAssist.ranklist_p_vote;
+        ranklist.clear();
         String command = "select name,p_vote from " + getTableReference()
                 + " order by p_vote desc";
         try (ResultSet lrs = gateway.executeQuery(command)){
@@ -504,14 +503,13 @@ public class PlayerDataManipulator {
             e.printStackTrace();
             return false;
         }
-        SeichiAssist.ranklist_p_vote.clear();
-        SeichiAssist.ranklist_p_vote.addAll(ranklist);
         return true;
     }
 
     //ランキング表示用にプレミアムエフェクトポイントのカラムだけ全員分引っ張る
-    private boolean updatePremiumEffectPointRankingList() {
-        List<RankData> ranklist = new ArrayList<>();
+    public boolean setPremiumEffectPointRanking() {
+        List<RankData> ranklist = SeichiAssist.ranklist_premiumeffectpoint;
+        ranklist.clear();
         String command = "select name,premiumeffectpoint from " + getTableReference()
                 + " order by premiumeffectpoint desc";
         try (ResultSet lrs = gateway.executeQuery(command)){
@@ -526,15 +524,15 @@ public class PlayerDataManipulator {
             e.printStackTrace();
             return false;
         }
-        SeichiAssist.ranklist_premiumeffectpoint.clear();
-        SeichiAssist.ranklist_premiumeffectpoint.addAll(ranklist);
         return true;
     }
 
     //ランキング表示用に上げたりんご数のカラムだけ全員分引っ張る
-    private boolean updateAppleNumberRankingList() {
-        List<RankData> ranklist = new ArrayList<>();
+    public boolean setAppleNumberRanking() {
+        List<RankData> ranklist = SeichiAssist.ranklist_p_apple;
         SeichiAssist.allplayergiveapplelong = 0;
+        ranklist.clear();
+
         String command = "select name,p_apple from " + getTableReference() + " order by p_apple desc";
         try (ResultSet lrs = gateway.executeQuery(command)){
             while (lrs.next()) {
@@ -549,23 +547,6 @@ public class PlayerDataManipulator {
             e.printStackTrace();
             return false;
         }
-        SeichiAssist.ranklist_p_apple.clear();
-        SeichiAssist.ranklist_p_apple.addAll(ranklist);
-        return true;
-    }
-
-    /**
-     * 全ランキングリストの更新処理
-     * @return 成否…true: 成功、false: 失敗
-     * TODO この処理はDB上と通信を行う為非同期にすべき
-     */
-    public boolean updateAllRankingList() {
-        if(!updateBlockRankingList())return false;
-        if(!updatePlayTickRankingList())return false;
-        if(!updateVoteRankingList())return false;
-        if(!updatePremiumEffectPointRankingList())return false;
-        if(!updateAppleNumberRankingList())return false;
-
         return true;
     }
 

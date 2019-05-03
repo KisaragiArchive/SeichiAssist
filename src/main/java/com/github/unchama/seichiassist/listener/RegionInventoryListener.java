@@ -1,27 +1,12 @@
 package com.github.unchama.seichiassist.listener;
 
-import com.github.unchama.seichiassist.Config;
-import com.github.unchama.seichiassist.SeichiAssist;
-import com.github.unchama.seichiassist.data.GridTemplate;
-import com.github.unchama.seichiassist.data.PlayerData;
-import com.github.unchama.seichiassist.data.RegionMenuData;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+
 import com.github.unchama.seichiassist.util.ExternalPlugins;
-import com.github.unchama.seichiassist.util.Util;
-import com.github.unchama.seichiassist.util.Util.Direction;
-import com.github.unchama.seichiassist.util.Util.DirectionType;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.sk89q.worldedit.bukkit.WorldEditPlugin;
-import com.sk89q.worldedit.bukkit.selections.Selection;
-import com.sk89q.worldguard.bukkit.WorldConfiguration;
-import com.sk89q.worldguard.bukkit.WorldGuardPlugin;
-import com.sk89q.worldguard.bukkit.commands.AsyncCommandHelper;
-import com.sk89q.worldguard.bukkit.commands.task.RegionAdder;
-import com.sk89q.worldguard.protection.ApplicableRegionSet;
-import com.sk89q.worldguard.protection.managers.RegionManager;
-import com.sk89q.worldguard.protection.regions.ProtectedCuboidRegion;
-import com.sk89q.worldguard.protection.regions.ProtectedRegion;
-import com.sk89q.worldguard.protection.util.DomainInputResolver;
 import net.md_5.bungee.api.ChatColor;
+
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Sound;
@@ -37,9 +22,26 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import com.github.unchama.seichiassist.Config;
+import com.github.unchama.seichiassist.SeichiAssist;
+import com.github.unchama.seichiassist.data.GridTemplate;
+import com.github.unchama.seichiassist.data.PlayerData;
+import com.github.unchama.seichiassist.data.RegionMenuData;
+import com.github.unchama.seichiassist.util.Util;
+import com.github.unchama.seichiassist.util.Util.Direction;
+import com.github.unchama.seichiassist.util.Util.DirectionType;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.sk89q.worldedit.bukkit.WorldEditPlugin;
+import com.sk89q.worldedit.bukkit.selections.Selection;
+import com.sk89q.worldguard.bukkit.WorldConfiguration;
+import com.sk89q.worldguard.bukkit.WorldGuardPlugin;
+import com.sk89q.worldguard.bukkit.commands.AsyncCommandHelper;
+import com.sk89q.worldguard.bukkit.commands.task.RegionAdder;
+import com.sk89q.worldguard.protection.ApplicableRegionSet;
+import com.sk89q.worldguard.protection.managers.RegionManager;
+import com.sk89q.worldguard.protection.regions.ProtectedCuboidRegion;
+import com.sk89q.worldguard.protection.regions.ProtectedRegion;
+import com.sk89q.worldguard.protection.util.DomainInputResolver;
 
 /**
  * 保護関連メニューのListenerクラス
@@ -461,6 +463,7 @@ public class RegionInventoryListener implements Listener {
 			Player player = (Player) view.getPlayer();
 			UUID uuid = player.getUniqueId();
 			PlayerData playerData = playermap.get(uuid);
+			Map<Integer, GridTemplate> templateMap = playerData.getTemplateMap();
 
 			//戻るボタン
 			if (itemstackcurrent.getType().equals(Material.BARRIER)) {
@@ -469,34 +472,37 @@ public class RegionInventoryListener implements Listener {
 			} else {
 				int slot = event.getSlot();
 
-				GridTemplate template = playerData.getTemplateMap().get(slot);
+				if (templateMap.get(slot) == null) {
+					return;
+				}
 
-				if (template == null) {
+				if (templateMap.get(slot).isEmpty()) {
 					//何も登録されてないとき
 					if (event.isLeftClick()) {
 						//左クリックの時は新規登録処理
 						playerGridTemplateSave(player, slot);
 						player.openInventory(RegionMenuData.getGridTemplateInventory(player));
 					}
-					return;
-				}
+				} else {
+					//登録されていた時
+					if (event.isLeftClick()) {
+						player.sendMessage(ChatColor.GREEN + "グリッド式保護設定データ読み込み完了");
+						player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1, 1);
+						GridTemplate template = templateMap.get(slot);
+						playerData.setUnitAmount(DirectionType.AHEAD, template.getAheadAmount());
+						playerData.setUnitAmount(DirectionType.BEHIND, template.getBehindAmount());
+						playerData.setUnitAmount(DirectionType.RIGHT, template.getRightAmount());
+						playerData.setUnitAmount(DirectionType.LEFT, template.getLeftAmount());
+						setWGSelection(player);
+						canCreateRegion(player);
+						player.openInventory(RegionMenuData.getGridWorldGuardMenu(player));
+					}
 
-				if (event.isLeftClick()) {
-					player.sendMessage(ChatColor.GREEN + "グリッド式保護設定データ読み込み完了");
-					player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1, 1);
-					playerData.setUnitAmount(DirectionType.AHEAD, template.getAheadAmount());
-					playerData.setUnitAmount(DirectionType.BEHIND, template.getBehindAmount());
-					playerData.setUnitAmount(DirectionType.RIGHT, template.getRightAmount());
-					playerData.setUnitAmount(DirectionType.LEFT, template.getLeftAmount());
-					setWGSelection(player);
-					canCreateRegion(player);
-					player.openInventory(RegionMenuData.getGridWorldGuardMenu(player));
-				}
-
-				if (event.isRightClick()) {
-					//新規登録処理
-					playerGridTemplateSave(player, slot);
-					player.openInventory(RegionMenuData.getGridTemplateInventory(player));
+					if (event.isRightClick()) {
+						//新規登録処理
+						playerGridTemplateSave(player, slot);
+						player.openInventory(RegionMenuData.getGridTemplateInventory(player));
+					}
 				}
 			}
 		}
@@ -505,12 +511,14 @@ public class RegionInventoryListener implements Listener {
 	private static void playerGridTemplateSave(Player player, int i) {
 		PlayerData playerData = SeichiAssist.playermap.get(player.getUniqueId());
 		Map<DirectionType,Integer> unitMap = playerData.getUnitMap();
+		Map<Integer, GridTemplate> templateMap = playerData.getTemplateMap();
 
 		player.sendMessage(ChatColor.GREEN + "グリッド式保護の現在の設定を保存しました。");
 		player.playSound(player.getLocation(), Sound.BLOCK_ENCHANTMENT_TABLE_USE, 1, 1);
 		GridTemplate template = new GridTemplate(unitMap.get(DirectionType.AHEAD), unitMap.get(DirectionType.BEHIND),
 				unitMap.get(DirectionType.RIGHT), unitMap.get(DirectionType.LEFT));
-		playerData.getTemplateMap().put(i, template);
+		templateMap.put(i, template);
+		playerData.setTemplateMap(templateMap);
 	}
 
 	/**
