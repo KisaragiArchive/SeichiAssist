@@ -1,22 +1,21 @@
 package com.github.unchama.seichiassist.menus.stickmenu
 
-import arrow.core.Left
 import com.github.unchama.itemstackbuilder.IconItemStackBuilder
 import com.github.unchama.itemstackbuilder.SkullItemStackBuilder
 import com.github.unchama.menuinventory.IndexedSlotLayout
 import com.github.unchama.menuinventory.Menu
 import com.github.unchama.menuinventory.MenuInventoryView
+import com.github.unchama.menuinventory.rows
 import com.github.unchama.menuinventory.slot.button.Button
 import com.github.unchama.menuinventory.slot.button.action.ClickEventFilter
 import com.github.unchama.menuinventory.slot.button.action.FilteredButtonEffect
 import com.github.unchama.menuinventory.slot.button.action.LeftClickButtonEffect
 import com.github.unchama.menuinventory.slot.button.recomputedButton
 import com.github.unchama.seasonalevents.events.valentine.Valentine
+import com.github.unchama.seichiassist.Schedulers
 import com.github.unchama.seichiassist.SeichiAssist
-import com.github.unchama.seichiassist.UUIDs
+import com.github.unchama.seichiassist.SkullOwners
 import com.github.unchama.seichiassist.data.player.settings.BroadcastMutingSettings.*
-import com.github.unchama.seichiassist.data.player.settings.getBroadcastMutingSettings
-import com.github.unchama.seichiassist.data.player.settings.toggleBroadcastMutingSettings
 import com.github.unchama.seichiassist.menus.CommonButtons
 import com.github.unchama.seichiassist.util.Util
 import com.github.unchama.seichiassist.util.exp.ExperienceManager
@@ -24,8 +23,8 @@ import com.github.unchama.targetedeffect.*
 import com.github.unchama.targetedeffect.player.FocusedSoundEffect
 import com.github.unchama.targetedeffect.player.asCommandEffect
 import com.github.unchama.targetedeffect.player.closeInventoryEffect
+import com.github.unchama.util.createInventory
 import net.md_5.bungee.api.ChatColor
-import org.bukkit.Bukkit
 import org.bukkit.ChatColor.*
 import org.bukkit.Material
 import org.bukkit.Sound
@@ -134,7 +133,7 @@ object SecondPage: Menu {
     }
 
     val appleConversionButton: Button = run {
-      val iconItemStack = IconItemStackBuilder(Material.GOLDEN_APPLE)
+      val iconItemStack = IconItemStackBuilder(Material.GOLDEN_APPLE, durability = 1)
           .title("$YELLOW$UNDERLINE${BOLD}GT景品→椎名林檎変換システム")
           .lore(listOf(
               "$RESET${GREEN}不必要なGT大当り景品を",
@@ -157,7 +156,7 @@ object SecondPage: Menu {
                 FocusedSoundEffect(Sound.BLOCK_CHEST_OPEN, 1.0f, 0.5f),
                 TargetedEffect {
                   // TODO メニューインベントリに差し替える
-                  it.openInventory(Bukkit.createInventory(null, 9 * 4, "$GOLD${BOLD}椎名林檎と交換したい景品を入れてネ"))
+                  it.openInventory(createInventory(size = 4.rows(), title ="$GOLD${BOLD}椎名林檎と交換したい景品を入れてネ"))
                 }
             )
           }
@@ -165,7 +164,7 @@ object SecondPage: Menu {
     }
 
     val titanConversionButton: Button = run {
-      val iconItemStack = IconItemStackBuilder(Material.DIAMOND_AXE)
+      val iconItemStack = IconItemStackBuilder(Material.DIAMOND_AXE, durability = 1)
           .title("$YELLOW$UNDERLINE${BOLD}限定タイタン修繕システム")
           .lore(listOf(
               "$RESET${GREEN}不具合によりテクスチャが反映されなくなってしまった",
@@ -178,7 +177,7 @@ object SecondPage: Menu {
               "$RESET${DARK_GRAY}神に祈りながら交換しよう",
               "$RESET$DARK_RED${UNDERLINE}クリックで開く"
           ))
-          .enchanted()
+          .unbreakable()
           .build()
 
       Button(
@@ -188,7 +187,7 @@ object SecondPage: Menu {
                 FocusedSoundEffect(Sound.BLOCK_CHEST_OPEN, 1.0f, 0.5f),
                 TargetedEffect {
                   // TODO メニューインベントリに差し替える
-                  it.openInventory(Bukkit.createInventory(null, 9 * 4, "$GOLD${BOLD}修繕したい限定タイタンを入れてネ"))
+                  it.openInventory(createInventory(size = 4.rows(), title ="$GOLD${BOLD}修繕したい限定タイタンを入れてネ"))
                 }
             )
           }
@@ -212,7 +211,7 @@ object SecondPage: Menu {
                 FocusedSoundEffect(Sound.BLOCK_CHEST_OPEN, 1.0f, 1.5f),
                 TargetedEffect {
                   // TODO メニューインベントリに差し替える
-                  it.openInventory(Bukkit.createInventory(null, 9 * 4, "$RED${BOLD}ゴミ箱(取扱注意)"))
+                  it.openInventory(createInventory(size = 4.rows(), title = "$RED${BOLD}ゴミ箱(取扱注意)"))
                 }
             )
           }
@@ -234,7 +233,7 @@ object SecondPage: Menu {
             sequentialEffect(
                 closeInventoryEffect,
                 FocusedSoundEffect(Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1.0f, 1.0f),
-                TargetedEffect { it.performCommand("hub") } // TODO asCommandEffect
+                "hub".asCommandEffect()
             )
           }
       )
@@ -257,7 +256,7 @@ object SecondPage: Menu {
               "$RESET$DARK_RED${UNDERLINE}経験値が足りません"
             }
 
-        SkullItemStackBuilder(UUIDs.MHF_Villager)
+        SkullItemStackBuilder(SkullOwners.MHF_Villager)
             .title("$YELLOW$UNDERLINE${BOLD}自分の頭を召喚")
             .lore(baseLore + actionNavigation)
             .build()
@@ -295,7 +294,7 @@ object SecondPage: Menu {
     suspend fun Player.computeBroadcastMessageToggleButton(): Button = recomputedButton {
       val playerData = SeichiAssist.playermap[uniqueId]!!
       val iconItemStack = run {
-        val currentSettings = playerData.getBroadcastMutingSettings()
+        val currentSettings = playerData.settings.getBroadcastMutingSettings()
 
         val soundConfigurationState =
             if (currentSettings.shouldMuteSounds()) {
@@ -305,7 +304,7 @@ object SecondPage: Menu {
             }
 
         val messageConfigurationState =
-            if (currentSettings.shouldMuteSounds()) {
+            if (currentSettings.shouldMuteMessages()) {
               "$RESET${GREEN}全体メッセージ:表示する"
             } else {
               "$RESET${RED}全体メッセージ:表示しない"
@@ -325,10 +324,10 @@ object SecondPage: Menu {
           iconItemStack,
           FilteredButtonEffect(ClickEventFilter.LEFT_CLICK) {
             sequentialEffect(
-                playerData.toggleBroadcastMutingSettings,
+                playerData.settings.toggleBroadcastMutingSettings,
                 FocusedSoundEffect(Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1.0f, 1.0f),
                 deferredEffect {
-                  when (playerData.getBroadcastMutingSettings()) {
+                  when (playerData.settings.getBroadcastMutingSettings()) {
                     RECEIVE_MESSAGE_AND_SOUND -> "${GREEN}非表示/消音設定を解除しました"
                     RECEIVE_MESSAGE_ONLY -> "${RED}消音可能な全体通知音を消音します"
                     MUTE_MESSAGE_AND_SOUND -> "${RED}非表示可能な全体メッセージを非表示にします"
@@ -347,7 +346,7 @@ object SecondPage: Menu {
             IconItemStackBuilder(Material.FLINT_AND_STEEL)
                 .title("$YELLOW$UNDERLINE${BOLD}死亡メッセージ表示切替")
 
-        if (playerData.shouldDisplayDeathMessages()) {
+        if (playerData.settings.shouldDisplayDeathMessages) {
           baseBuilder
               .enchanted()
               .lore(listOf(
@@ -367,10 +366,10 @@ object SecondPage: Menu {
           iconItemStack,
           FilteredButtonEffect(ClickEventFilter.LEFT_CLICK) {
             sequentialEffect(
-                playerData.toggleDeathMessageMutingSettings,
+                playerData.settings.toggleDeathMessageMutingSettings,
                 deferredEffect {
                   val (soundPitch, message) =
-                      if (playerData.shouldDisplayDeathMessages())
+                      if (playerData.settings.shouldDisplayDeathMessages)
                         Pair(1.0f, "${GREEN}死亡メッセージ:表示")
                       else
                         Pair(0.5f, "${RED}死亡メッセージ:隠す")
@@ -394,7 +393,7 @@ object SecondPage: Menu {
 
         val loreHeading = "$RESET${GRAY}スキル使用時のワールドガード保護警告メッセージ"
 
-        if (playerData.shouldDisplayWorldGuardLogs()) {
+        if (playerData.settings.shouldDisplayWorldGuardLogs) {
           baseBuilder
               .enchanted()
               .lore(listOf(
@@ -416,10 +415,10 @@ object SecondPage: Menu {
           iconItemStack,
           FilteredButtonEffect(ClickEventFilter.LEFT_CLICK) {
             sequentialEffect(
-                playerData.toggleWorldGuardLogEffect,
+                playerData.settings.toggleWorldGuardLogEffect,
                 deferredEffect {
                   val (soundPitch, message) =
-                      if (playerData.shouldDisplayWorldGuardLogs())
+                      if (playerData.settings.shouldDisplayWorldGuardLogs)
                         Pair(1.0f, "${ChatColor.GREEN}ワールドガード保護メッセージ:表示")
                       else
                         Pair(0.5f, "${ChatColor.RED}ワールドガード保護メッセージ:隠す")
@@ -494,9 +493,12 @@ object SecondPage: Menu {
       }
 
   override val open: TargetedEffect<Player> = computedEffect { player ->
-    val view = MenuInventoryView(Left(4 * 9), "${LIGHT_PURPLE}木の棒メニュー", player.computeMenuLayout())
+    val session = MenuInventoryView(4.rows(), "${LIGHT_PURPLE}木の棒メニュー").createNewSession()
 
-    view.createNewSession().open
+    sequentialEffect(
+        session.openEffectThrough(Schedulers.sync),
+        unfocusedEffect { session.overwriteViewWith(player.computeMenuLayout()) }
+    )
   }
 }
 

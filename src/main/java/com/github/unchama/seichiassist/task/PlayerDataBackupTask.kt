@@ -2,7 +2,6 @@ package com.github.unchama.seichiassist.task
 
 import com.github.unchama.seichiassist.SeichiAssist
 import com.github.unchama.seichiassist.util.Util
-import kotlinx.coroutines.delay
 import org.bukkit.Bukkit
 import org.bukkit.ChatColor
 
@@ -22,7 +21,7 @@ object PlayerDataBackupTask: RepeatedTaskLauncher() {
     for (player in Bukkit.getOnlinePlayers()) {
       val playerData = playerMap[player.uniqueId]
 
-      if (playerData != null) {
+      if (playerData !== null) {
         databaseGateway.playerDataManipulator.savePlayerData(playerData)
       } else {
         Bukkit.getLogger().warning(player.name + " -> PlayerData not found.")
@@ -34,7 +33,7 @@ object PlayerDataBackupTask: RepeatedTaskLauncher() {
     Bukkit.getLogger().info(ChatColor.AQUA.toString() + "プレイヤーデータセーブ完了")
 
     //ランキングリストを最新情報に更新する
-    if (!databaseGateway.playerDataManipulator.updateAllRankingList()) {
+    if (!databaseGateway.playerDataManipulator.successRankingUpdate()) {
       SeichiAssist.instance.logger.info("ランキングデータの作成に失敗しました")
     }
   }

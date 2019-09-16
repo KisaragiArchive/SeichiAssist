@@ -1,24 +1,24 @@
 package com.github.unchama.seichiassist
 
+import com.github.unchama.buildassist.BuildAssist
 import com.github.unchama.menuinventory.MenuHandler
 import com.github.unchama.seichiassist.bungee.BungeeReceiver
 import com.github.unchama.seichiassist.commands.*
 import com.github.unchama.seichiassist.commands.legacy.GachaCommand
 import com.github.unchama.seichiassist.data.GachaPrize
 import com.github.unchama.seichiassist.data.MineStackGachaData
-import com.github.unchama.seichiassist.data.PlayerData
 import com.github.unchama.seichiassist.data.RankData
+import com.github.unchama.seichiassist.data.player.PlayerData
 import com.github.unchama.seichiassist.database.DatabaseGateway
 import com.github.unchama.seichiassist.listener.*
 import com.github.unchama.seichiassist.listener.new_year_event.NewYearsEvent
 import com.github.unchama.seichiassist.minestack.MineStackObj
+import com.github.unchama.seichiassist.minestack.MineStackObjectCategory
 import com.github.unchama.seichiassist.task.HalfHourRankingRoutine
 import com.github.unchama.seichiassist.task.PlayerDataBackupTask
 import com.github.unchama.seichiassist.task.PlayerDataPeriodicRecalculation
 import com.github.unchama.seichiassist.task.PlayerDataSaveTask
-import com.github.unchama.seichiassist.util.Util
 import com.github.unchama.util.ActionStatus.Fail
-import com.github.unchama.util.collection.ImmutableListFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -27,17 +27,19 @@ import org.bukkit.ChatColor.GREEN
 import org.bukkit.ChatColor.RED
 import org.bukkit.Material
 import org.bukkit.block.Block
+import org.bukkit.command.Command
+import org.bukkit.command.CommandSender
 import org.bukkit.entity.Entity
 import org.bukkit.plugin.java.JavaPlugin
 import java.util.*
 
 
 class SeichiAssist : JavaPlugin() {
-  init {
-    instance = this
-  }
+  init { instance = this }
 
   private var repeatedJobCoroutine: Job? = null
+
+  val expBarSynchronization = ExpBarSynchronization()
 
   override fun onEnable() {
 
@@ -66,19 +68,25 @@ class SeichiAssist : JavaPlugin() {
       logger.info("${GREEN}config.ymlの設定値を書き換えて再起動してください")
     }
 
-    databaseGateway = DatabaseGateway.createInitializedInstance(
-        seichiAssistConfig.url, seichiAssistConfig.db, seichiAssistConfig.id, seichiAssistConfig.pw
-    )
+    try {
+      databaseGateway = DatabaseGateway.createInitializedInstance(
+          seichiAssistConfig.url, seichiAssistConfig.db, seichiAssistConfig.id, seichiAssistConfig.pw
+      )
+    } catch (e: Exception) {
+      e.printStackTrace()
+      logger.severe("データベース初期化に失敗しました。サーバーを停止します…")
+      Bukkit.shutdown()
+    }
 
     //mysqlからガチャデータ読み込み
     if (!databaseGateway.gachaDataManipulator.loadGachaData()) {
-      logger.info("ガチャデータのロードに失敗しました")
+      logger.severe("ガチャデータのロードに失敗しました")
       Bukkit.shutdown()
     }
 
     //mysqlからMineStack用ガチャデータ読み込み
     if (!databaseGateway.mineStackGachaDataManipulator.loadMineStackGachaData()) {
-      logger.info("MineStack用ガチャデータのロードに失敗しました")
+      logger.severe("MineStack用ガチャデータのロードに失敗しました")
       Bukkit.shutdown()
     }
 
@@ -116,19 +124,19 @@ class SeichiAssist : JavaPlugin() {
 
     //リスナーの登録
     listOf(
-      PlayerJoinListener(),
-      PlayerQuitListener(),
-      PlayerClickListener(),
-      PlayerChatEventListener(),
-      PlayerBlockBreakListener(),
-      PlayerInventoryListener(),
-      EntityListener(),
-      PlayerPickupItemListener(),
-      PlayerDeathEventListener(),
-      GachaItemListener(),
-      MebiusListener(),
-      RegionInventoryListener(),
-      WorldRegenListener()
+        PlayerJoinListener(),
+        PlayerQuitListener(),
+        PlayerClickListener(),
+        PlayerChatEventListener(),
+        PlayerBlockBreakListener(),
+        PlayerInventoryListener(),
+        EntityListener(),
+        PlayerPickupItemListener(),
+        PlayerDeathEventListener(),
+        GachaItemListener(),
+        MebiusListener(),
+        RegionInventoryListener(),
+        WorldRegenListener()
     ).forEach { server.pluginManager.registerEvents(it, this) }
 
     //正月イベント用
@@ -140,11 +148,11 @@ class SeichiAssist : JavaPlugin() {
     //オンラインの全てのプレイヤーを処理
     for (p in server.onlinePlayers) {
       //プレイヤーデータを生成
-      databaseGateway.playerDataManipulator.loadPlayerData(PlayerData(p))
+      playermap[p.uniqueId] = databaseGateway.playerDataManipulator.loadPlayerData(p.uniqueId, p.name)
     }
 
     //ランキングリストを最新情報に更新する
-    if (!databaseGateway.playerDataManipulator.updateAllRankingList()) {
+    if (!databaseGateway.playerDataManipulator.successRankingUpdate()) {
       logger.info("ランキングデータの作成に失敗しました")
       Bukkit.shutdown()
     }
@@ -152,6 +160,8 @@ class SeichiAssist : JavaPlugin() {
     startRepeatedJobs()
 
     logger.info("SeichiAssist is Enabled!")
+
+    buildAssist = BuildAssist(this).apply { onEnable() }
   }
 
   override fun onDisable() {
@@ -174,21 +184,26 @@ class SeichiAssist : JavaPlugin() {
       if (playerdata == null) {
         p.sendMessage(RED.toString() + "playerdataの保存に失敗しました。管理者に報告してください")
         server.consoleSender.sendMessage(RED.toString() + "SeichiAssist[Ondisable処理]でエラー発生")
-        logger.warning(Util.getName(p) + "のplayerdataの保存失敗。開発者に報告してください")
+        logger.warning(p.name + "のplayerdataの保存失敗。開発者に報告してください")
         continue
       }
       //quit時とondisable時、プレイヤーデータを最新の状態に更新
-      playerdata.updateonQuit(p)
+      playerdata.updateOnQuit()
 
       PlayerDataSaveTask(playerdata, true, true).run()
     }
 
-    if (databaseGateway.disconnect() == Fail) {
+    if (databaseGateway.disconnect() === Fail) {
       logger.info("データベース切断に失敗しました")
     }
 
     logger.info("SeichiAssist is Disabled!")
+
+    buildAssist.onDisable()
   }
+
+  override fun onCommand(sender: CommandSender?, command: Command?, label: String?, args: Array<out String>?)
+      = buildAssist.onCommand(sender, command, label, args)
 
   private fun startRepeatedJobs() {
     repeatedJobCoroutine = CoroutineScope(Schedulers.sync).launch {
@@ -216,9 +231,6 @@ class SeichiAssist : JavaPlugin() {
     //ガチャシステムのメンテナンスフラグ
     var gachamente = false
 
-    // TODO これらは DatabaseConstants に移されるべき
-    const val PLAYERDATA_TABLENAME = "playerdata"
-
     val SEICHIWORLDNAME = "world_sw"
     val DEBUGWORLDNAME = "world"
 
@@ -226,11 +238,13 @@ class SeichiAssist : JavaPlugin() {
     lateinit var databaseGateway: DatabaseGateway
     lateinit var seichiAssistConfig: Config
 
+    lateinit var buildAssist: BuildAssist
+
     //Gachadataに依存するデータリスト
-    val gachadatalist: List<GachaPrize> = ArrayList()
+    val gachadatalist: MutableList<GachaPrize> = ArrayList()
 
     //(minestackに格納する)Gachadataに依存するデータリスト
-    var msgachadatalist: List<MineStackGachaData> = ArrayList()
+    var msgachadatalist: MutableList<MineStackGachaData> = ArrayList()
 
     //Playerdataに依存するデータリスト
     val playermap = HashMap<UUID, PlayerData>()
@@ -259,30 +273,14 @@ class SeichiAssist : JavaPlugin() {
     val entitylist: MutableList<Entity> = ArrayList()
 
     //プレイヤーがスキルで破壊するブロックリスト
-    val allblocklist: MutableList<Block> = ArrayList()
-
-    //スキル破壊ブロック分のcoreprotectログ保存処理を除外するワールドリスト(coreprotectログデータ肥大化の軽減が目的)
-    //スキル自体はメインワールドと各整地ワールドのみ(world_SWで始まるワールドのみ)で発動する(ここの設定は無視する)
-    val ignoreWorldlist = ImmutableListFactory.of(
-        "world_SW", "world_SW_2", "world_SW_3", "world_SW_nether", "world_SW_the_end"
-    )
-
-    //保護を掛けて整地するワールドのリスト
-    val rgSeichiWorldlist = ImmutableListFactory.of(
-        "world_SW_2"
-    )
-
-    //整地ワールドのリスト(保護の有無は問わない)
-    val seichiWorldList = ImmutableListFactory.of(
-        "world_SW", "world_SW_2", "world_SW_3", "world_SW_nether", "world_SW_the_end"
-    )
+    val allblocklist: MutableList<Block> = LinkedList()
 
     private fun creategachaminestacklist(): List<MineStackObj> {
       val minestacklist = ArrayList<MineStackObj>()
       for (i in msgachadatalist.indices) {
         val g = msgachadatalist[i]
-        if (g.itemStack.type != Material.EXP_BOTTLE) { //経験値瓶だけはすでにリストにあるので除外
-          minestacklist.add(MineStackObj(g.objName, g.level, g.itemStack, true, i, 5))
+        if (g.itemStack.type !== Material.EXP_BOTTLE) { //経験値瓶だけはすでにリストにあるので除外
+          minestacklist.add(MineStackObj(g.objName, null, g.level, g.itemStack, true, i, MineStackObjectCategory.GACHA_PRIZES))
         }
       }
       return minestacklist

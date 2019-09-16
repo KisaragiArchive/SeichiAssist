@@ -1,18 +1,22 @@
 package com.github.unchama.seichiassist.menus.minestack
 
-import arrow.core.Left
 import com.github.unchama.itemstackbuilder.IconItemStackBuilder
 import com.github.unchama.menuinventory.IndexedSlotLayout
 import com.github.unchama.menuinventory.Menu
 import com.github.unchama.menuinventory.MenuInventoryView
+import com.github.unchama.menuinventory.rows
 import com.github.unchama.menuinventory.slot.button.Button
 import com.github.unchama.menuinventory.slot.button.action.LeftClickButtonEffect
+import com.github.unchama.seichiassist.CommonSoundEffects
+import com.github.unchama.seichiassist.Schedulers
 import com.github.unchama.seichiassist.SeichiAssist
 import com.github.unchama.seichiassist.menus.CommonButtons
 import com.github.unchama.seichiassist.minestack.MineStackObjectCategory
 import com.github.unchama.seichiassist.minestack.MineStackObjectCategory.*
 import com.github.unchama.targetedeffect.TargetedEffect
 import com.github.unchama.targetedeffect.computedEffect
+import com.github.unchama.targetedeffect.sequentialEffect
+import com.github.unchama.targetedeffect.unfocusedEffect
 import org.bukkit.ChatColor.*
 import org.bukkit.Material
 import org.bukkit.entity.Player
@@ -32,12 +36,15 @@ object MineStackMainMenu: Menu {
       val layoutMap = MineStackObjectCategory.values().mapIndexed { index, category ->
         val slotIndex = index + 1 // 0には自動スタック機能トグルが入るので、1から入れ始める
         val iconItemStack = IconItemStackBuilder(iconMaterialFor(category))
-            .lore(listOf("$BLUE$UNDERLINE$BOLD${category.uiLabel}"))
+            .title("$BLUE$UNDERLINE$BOLD${category.uiLabel}")
             .build()
 
         val button = Button(
             iconItemStack,
-            LeftClickButtonEffect(CategorizedMineStackMenu.forCategory(category).open)
+            LeftClickButtonEffect(
+                CommonSoundEffects.menuTransitionFenceSound,
+                CategorizedMineStackMenu.forCategory(category).open
+            )
         )
         slotIndex to button
       }.toMap()
@@ -74,12 +81,14 @@ object MineStackMainMenu: Menu {
   }
 
   override val open: TargetedEffect<Player> = computedEffect { player ->
-    val view = MenuInventoryView(
-        Left(4 * 9),
-        "$DARK_PURPLE${BOLD}MineStackメインメニュー",
-        player.computeMineStackMainMenuLayout()
-    )
+    val session = MenuInventoryView(
+        6.rows(),
+        "$DARK_PURPLE${BOLD}MineStackメインメニュー"
+    ).createNewSession()
 
-    view.createNewSession().open
+    sequentialEffect(
+        session.openEffectThrough(Schedulers.sync),
+        unfocusedEffect { session.overwriteViewWith(player.computeMineStackMainMenuLayout()) }
+    )
   }
 }
