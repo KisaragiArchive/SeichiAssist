@@ -31,7 +31,8 @@ import org.bukkit.{Material, Sound}
 object FirstPage extends Menu {
 
   import com.github.unchama.menuinventory.syntax._
-  import com.github.unchama.seichiassist.concurrent.PluginExecutionContexts.layoutPreparationContext
+  import com.github.unchama.seichiassist.concurrent.PluginExecutionContexts.{layoutPreparationContext, sync}
+  import com.github.unchama.targetedeffect.player.PlayerEffects._
   import com.github.unchama.targetedeffect.syntax._
   import eu.timepit.refined.auto._
 
@@ -265,9 +266,7 @@ object FirstPage extends Menu {
             if (playerData.level >= minimumRequiredLevel)
               sequentialEffect(
                 FocusedSoundEffect(Sound.BLOCK_ENDERCHEST_OPEN, 1.0f, 0.1f),
-                targetedeffect.delay { player: Player =>
-                  player.openInventory(playerData.pocketInventory)
-                }
+                openInventoryEffect(playerData.pocketInventory),
               ) else FocusedSoundEffect(Sound.BLOCK_GRASS_PLACE, 1.0f, 0.1f)
           })
         )
@@ -300,9 +299,7 @@ object FirstPage extends Menu {
             if (playerData.level >= minimumRequiredLevel) {
               sequentialEffect(
                 FocusedSoundEffect(Sound.BLOCK_ENDERCHEST_OPEN, 1.0f, 1.0f),
-                targetedeffect.delay { player: Player =>
-                  player.openInventory(player.getEnderChest)
-                }
+                openInventoryEffect(player.getEnderChest)
               )
             } else {
               FocusedSoundEffect(Sound.BLOCK_GRASS_PLACE, 1.0f, 0.1f)
@@ -348,12 +345,11 @@ object FirstPage extends Menu {
 
           if (numberOfItemsToGive != 0) {
             val itemToGive = Util.getForBugskull(player.getName)
+            val itemStacksToGive = Seq.fill(numberOfItemsToGive)(itemToGive)
 
             sequentialEffect(
-              UnfocusedEffect {
-                (1 to numberOfItemsToGive).foreach { _ => Util.addItemToPlayerSafely(player, itemToGive) }
-                playerData.unclaimedApologyItems -= numberOfItemsToGive
-              },
+              Util.grantItemStacksEffect(itemStacksToGive: _*),
+              UnfocusedEffect { playerData.unclaimedApologyItems -= numberOfItemsToGive },
               FocusedSoundEffect(Sound.BLOCK_ANVIL_PLACE, 1.0f, 1.0f),
               s"${GREEN}運営チームから${numberOfItemsToGive}枚の${GOLD}ガチャ券${WHITE}を受け取りました".asMessageEffect()
             )
@@ -410,9 +406,7 @@ object FirstPage extends Menu {
         LeftClickButtonEffect(
           FocusedSoundEffect(Sound.BLOCK_ENCHANTMENT_TABLE_USE, 1.0f, 0.8f),
           // TODO メニューに置き換える
-          UnfocusedEffect {
-            player.openInventory(ActiveSkillInventoryData.getActiveSkillMenuData(player))
-          }
+          openInventoryEffect(ActiveSkillInventoryData.getActiveSkillMenuData(player)),
         )
       )
     }
@@ -454,11 +448,9 @@ object FirstPage extends Menu {
 
             if (gachaTicketsToGive > 0) {
               sequentialEffect(
+                Util.grantItemStacksEffect(Seq.fill(gachaTicketsToGive)(itemStackToGive): _*),
                 targetedeffect.UnfocusedEffect {
                   playerData.gachapoint -= gachaPointPerTicket * gachaTicketsToGive
-                  (1 to gachaTicketsToGive).foreach { _ =>
-                    Util.addItemToPlayerSafely(player, itemStackToGive)
-                  }
                 },
                 s"${GOLD}ガチャ券${gachaTicketsToGive}枚${WHITE}プレゼントフォーユー".asMessageEffect(),
                 FocusedSoundEffect(Sound.BLOCK_ANVIL_PLACE, 1.0f, 1.0f)
@@ -575,9 +567,7 @@ object FirstPage extends Menu {
         LeftClickButtonEffect(
           FocusedSoundEffect(Sound.BLOCK_PORTAL_AMBIENT, 0.6f, 1.5f),
           // TODO メニューに置き換える
-          targetedeffect.delay { player =>
-            player.openInventory(MenuInventoryData.getServerSwitchMenu(player))
-          }
+          computedEffect(p => openInventoryEffect(MenuInventoryData.getServerSwitchMenu(p))),
         )
       )
     }
@@ -597,9 +587,7 @@ object FirstPage extends Menu {
           .lore(buttonLore)
           .build(),
         LeftClickButtonEffect(
-          targetedeffect.delay { player =>
-            player.closeInventory()
-          },
+          closeInventoryEffect,
           FocusedSoundEffect(Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1f, 1f),
           "spawn".asCommandEffect()
         )
@@ -640,9 +628,7 @@ object FirstPage extends Menu {
         LeftClickButtonEffect(
           CommonSoundEffects.menuTransitionFenceSound,
           // TODO メニューに置き換える
-          targetedeffect.delay { player =>
-            player.openInventory(MenuInventoryData.getRankingList(0))
-          }
+          openInventoryEffect(MenuInventoryData.getRankingList(0)),
         )
       )
     }
@@ -661,9 +647,7 @@ object FirstPage extends Menu {
         LeftClickButtonEffect(
           CommonSoundEffects.menuTransitionFenceSound,
           // TODO メニューに置き換える
-          targetedeffect.delay { player =>
-            player.openInventory(MenuInventoryData.getRankingList_playtick(0))
-          }
+          openInventoryEffect(MenuInventoryData.getRankingList_playtick(0)),
         )
       )
     }
@@ -683,9 +667,7 @@ object FirstPage extends Menu {
         LeftClickButtonEffect(
           CommonSoundEffects.menuTransitionFenceSound,
           // TODO メニューに置き換える
-          targetedeffect.delay { player =>
-            player.openInventory(MenuInventoryData.getRankingList_p_vote(0))
-          }
+          openInventoryEffect(MenuInventoryData.getRankingList_p_vote(0)),
         )
       )
     }
@@ -717,14 +699,12 @@ object FirstPage extends Menu {
         iconItemStack,
         LeftClickButtonEffect(
           FocusedSoundEffect(Sound.BLOCK_CHEST_OPEN, 1.0f, 0.5f),
-          targetedeffect.delay { player =>
-            player.openInventory(
-              InventoryUtil.createInventory(
-                size = 4.chestRows,
-                title = Some(s"$LIGHT_PURPLE${BOLD}交換したい景品を入れてください")
-              )
+          openInventoryEffect(
+            InventoryUtil.createInventory(
+              size = 4.chestRows,
+              title = Some(s"$LIGHT_PURPLE${BOLD}交換したい景品を入れてください")
             )
-          }
+          ),
         )
       )
     }
@@ -744,9 +724,7 @@ object FirstPage extends Menu {
         LeftClickButtonEffect(
           FocusedSoundEffect(Sound.BLOCK_CHEST_OPEN, 1.0f, 1.5f),
           // TODO メニューに置き換える
-          targetedeffect.delay { player =>
-            player.openInventory(MenuInventoryData.getHomeMenuData(player))
-          }
+          computedEffect(p => openInventoryEffect(MenuInventoryData.getHomeMenuData(p)))
         )
       )
     }
@@ -811,9 +789,7 @@ object FirstPage extends Menu {
         LeftClickButtonEffect(
           FocusedSoundEffect(Sound.BLOCK_ENCHANTMENT_TABLE_USE, 1.0f, 0.8f),
           // TODO メニューに置き換える
-          targetedeffect.delay { player =>
-            player.openInventory(MenuInventoryData.getPassiveSkillMenuData(player))
-          }
+          computedEffect(p => openInventoryEffect(MenuInventoryData.getPassiveSkillMenuData(p))),
         )
       )
     }
@@ -839,14 +815,12 @@ object FirstPage extends Menu {
         LeftClickButtonEffect(
           FocusedSoundEffect(Sound.BLOCK_CHEST_OPEN, 1.0f, 0.5f),
           // TODO メニューに置き換える
-          targetedeffect.delay { player =>
-            player.openInventory(
-              InventoryUtil.createInventory(
-                size = 4.chestRows,
-                title = Some(s"$LIGHT_PURPLE${BOLD}交換したい鉱石を入れてください")
-              )
+          openInventoryEffect(
+            InventoryUtil.createInventory(
+              size = 4.chestRows,
+              title = Some(s"$LIGHT_PURPLE${BOLD}交換したい鉱石を入れてください")
             )
-          }
+          )
         )
       )
     }
@@ -864,9 +838,7 @@ object FirstPage extends Menu {
         LeftClickButtonEffect(
           CommonSoundEffects.menuTransitionFenceSound,
           // TODO メニューに置き換える
-          targetedeffect.delay { player =>
-            player.openInventory(MenuInventoryData.getVotingMenuData(player))
-          }
+          computedEffect(p => openInventoryEffect(MenuInventoryData.getVotingMenuData(p))),
         )
       )
     }

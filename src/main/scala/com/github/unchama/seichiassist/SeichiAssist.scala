@@ -127,6 +127,7 @@ class SeichiAssist extends JavaPlugin() {
       case (commandName, executor) => getCommand(commandName).setExecutor(executor)
     }
 
+    import PluginExecutionContexts.asyncShift
     //リスナーの登録
     List(
       new PlayerJoinListener(),
@@ -142,7 +143,7 @@ class SeichiAssist extends JavaPlugin() {
       new RegionInventoryListener(),
       new WorldRegenListener(),
       new ChatInterceptor(List(globalChatInterceptionScope)),
-      MenuHandler
+      new MenuHandler()
     ).foreach {
       getServer.getPluginManager.registerEvents(_, this)
     }
@@ -180,12 +181,14 @@ class SeichiAssist extends JavaPlugin() {
   private def startRepeatedJobs(): Unit = {
     val startTask = {
       import cats.implicits._
-
-      val programs: List[Timer[IO] => RepeatingTask] = List(
-        HalfHourRankingRoutine(SeichiAssist.Concurrency.asyncExecutionContext),
-        PlayerDataPeriodicRecalculation(SeichiAssist.Concurrency.syncExecutionContext),
-        PlayerDataBackupTask(SeichiAssist.Concurrency.asyncExecutionContext)
-      )
+      // 公共鯖なら整地量のランキングを表示する必要はない
+      val programs: List[Timer[IO] => RepeatingTask] =
+        List(
+          PlayerDataPeriodicRecalculation(SeichiAssist.Concurrency.syncExecutionContext),
+          PlayerDataBackupTask(SeichiAssist.Concurrency.asyncExecutionContext)
+        ) ++
+          Option.unless(SeichiAssist.seichiAssistConfig.getServerNum == 7)(HalfHourRankingRoutine(SeichiAssist.Concurrency.asyncExecutionContext))
+                .toList
 
       val sleepTimer: Timer[IO] = IO.timer(SeichiAssist.Concurrency.cachedThreadPool)
 
