@@ -1,9 +1,8 @@
 package com.github.unchama.seichiassist
 
 import java.util.UUID
-import java.util.concurrent.Executors
 
-import cats.effect.{ContextShift, Fiber, IO, Timer}
+import cats.effect.{Fiber, IO}
 import com.github.unchama.buildassist.BuildAssist
 import com.github.unchama.chatinterceptor.{ChatInterceptor, InterceptionScope}
 import com.github.unchama.concurrent.RepeatingTask
@@ -30,7 +29,6 @@ import org.bukkit.{Bukkit, Material}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
-import scala.concurrent.{ExecutionContext, ExecutionContextExecutor}
 
 class SeichiAssist extends JavaPlugin() {
   SeichiAssist.instance = this
@@ -50,7 +48,7 @@ class SeichiAssist extends JavaPlugin() {
 
 
     //コンフィグ系の設定は全てConfig.javaに移動
-    SeichiAssist.seichiAssistConfig = new Config(this)
+    SeichiAssist.seichiAssistConfig = new Config()
     SeichiAssist.seichiAssistConfig.loadConfig()
 
     if (SeichiAssist.seichiAssistConfig.getDebugMode == 1) {
@@ -180,21 +178,22 @@ class SeichiAssist extends JavaPlugin() {
 
   private def startRepeatedJobs(): Unit = {
     val startTask = {
+      import PluginExecutionContexts._
       import cats.implicits._
+
       // 公共鯖なら整地量のランキングを表示する必要はない
-      val programs: List[Timer[IO] => RepeatingTask] =
+      val programs: List[RepeatingTask] =
         List(
-          PlayerDataPeriodicRecalculation(SeichiAssist.Concurrency.syncExecutionContext),
-          PlayerDataBackupTask(SeichiAssist.Concurrency.asyncExecutionContext)
+          new PlayerDataPeriodicRecalculation,
+          new PlayerDataBackupTask
         ) ++
-          Option.unless(SeichiAssist.seichiAssistConfig.getServerNum == 7)(HalfHourRankingRoutine(SeichiAssist.Concurrency.asyncExecutionContext))
-                .toList
+          Option.unless(
+            SeichiAssist.seichiAssistConfig.getServerNum == 7
+          )(
+            new HalfHourRankingRoutine
+          ).toList
 
-      val sleepTimer: Timer[IO] = IO.timer(SeichiAssist.Concurrency.cachedThreadPool)
-
-      import SeichiAssist.Concurrency.asyncContextShift
-
-      programs.map(_ (sleepTimer).launch).parSequence.start
+      programs.map(_.launch).parSequence.start
     }
 
     repeatedTaskFiber = Some(startTask.unsafeRunSync())
@@ -297,18 +296,9 @@ object SeichiAssist {
   var allplayerbreakblockint = 0L
   var allplayergiveapplelong = 0L
 
-  object Concurrency {
-    val syncExecutionContext: ExecutionContext = PluginExecutionContexts.sync
-    val asyncExecutionContext: ExecutionContextExecutor = ExecutionContext.global
-
-    val cachedThreadPool: ExecutionContextExecutor = ExecutionContext.fromExecutor(Executors.newCachedThreadPool())
-
-    implicit val asyncContextShift: ContextShift[IO] = IO.contextShift(SeichiAssist.Concurrency.cachedThreadPool)
-  }
-
   object Scopes {
     implicit val globalChatInterceptionScope: InterceptionScope[UUID, String] = {
-      import SeichiAssist.Concurrency.asyncContextShift
+      import PluginExecutionContexts.asyncShift
 
       new InterceptionScope[UUID, String]()
     }
