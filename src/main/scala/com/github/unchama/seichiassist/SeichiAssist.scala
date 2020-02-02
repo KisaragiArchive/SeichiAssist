@@ -127,7 +127,7 @@ class SeichiAssist extends JavaPlugin() {
 
     import PluginExecutionContexts.asyncShift
     //リスナーの登録
-    List(
+    Set(
       new PlayerJoinListener(),
       new PlayerQuitListener(),
       new PlayerClickListener(),
@@ -304,14 +304,12 @@ object SeichiAssist {
     }
   }
 
-  private def generateGachaPrizes(): List[MineStackObj] = {
-    val minestacklist = mutable.ArrayBuffer[MineStackObj]()
-    for (i <- msgachadatalist.indices) {
-      val g = msgachadatalist(i)
-      if (g.itemStack.getType != Material.EXP_BOTTLE) { //経験値瓶だけはすでにリストにあるので除外
-        minestacklist += new MineStackObj(g.objName, None, g.level, g.itemStack, true, i, MineStackObjectCategory.GACHA_PRIZES)
+  private def generateGachaPrizes(): List[MineStackObj] =
+    msgachadatalist
+      .toList
+      .zipWithIndex
+      .filter(_._1.itemStack.getType != Material.EXP_BOTTLE) //経験値瓶だけはすでにリストにあるので除外
+      .map { case (g, i) =>
+        new MineStackObj(g.objName, None, g.level, g.itemStack, true, i, MineStackObjectCategory.GACHA_PRIZES)
       }
-    }
-    minestacklist.toList
-  }
 }

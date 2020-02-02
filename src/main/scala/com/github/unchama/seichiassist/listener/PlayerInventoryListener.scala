@@ -2,6 +2,7 @@ package com.github.unchama.seichiassist.listener
 
 import com.github.unchama.seichiassist
 import com.github.unchama.seichiassist._
+import com.github.unchama.seichiassist.activeskill.effect.{ActiveSkillNormalEffect, ActiveSkillPremiumEffect}
 import com.github.unchama.seichiassist.data.player.GiganticBerserk
 import com.github.unchama.seichiassist.data.{ActiveSkillInventoryData, ItemData, MenuInventoryData}
 import com.github.unchama.seichiassist.listener.invlistener.{OnActiveSkillUnselect, OnClickTitleMenu}
@@ -11,7 +12,6 @@ import com.github.unchama.seichiassist.util.exp.ExperienceManager
 import com.github.unchama.seichiassist.util.{StaticGachaPrizeFactory, Util}
 import com.github.unchama.targetedeffect.player.FocusedSoundEffect
 import com.github.unchama.util.ActionStatus
-import com.google.common.io.ByteStreams
 import org.bukkit.ChatColor._
 import org.bukkit.enchantments.Enchantment
 import org.bukkit.entity.{EntityType, Player}
@@ -33,172 +33,6 @@ class PlayerInventoryListener extends Listener {
   private val playerMap = SeichiAssist.playermap
   private val gachaDataList = SeichiAssist.gachadatalist
   private val databaseGateway = SeichiAssist.databaseGateway
-
-  //サーバー選択メニュー
-  @EventHandler
-  def onPlayerClickServerSwitchMenuEvent(event: InventoryClickEvent): Unit = {
-    //外枠のクリック処理なら終了
-    if (event.getClickedInventory == null) {
-      return
-    }
-
-    val itemstackcurrent = event.getCurrentItem
-    val view = event.getView
-    val he = view.getPlayer
-    //インベントリを開けたのがプレイヤーではない時終了
-    if (he.getType != EntityType.PLAYER) {
-      return
-    }
-
-    val topinventory = view.getTopInventory.ifNull {
-      return
-    }
-    //インベントリが存在しない時終了
-    //インベントリサイズが36でない時終了
-    if (topinventory.row != 2) {
-      return
-    }
-    val player = he.asInstanceOf[Player]
-
-    //インベントリ名が以下の時処理
-    if (topinventory.getTitle == s"$DARK_RED${BOLD}サーバーを選択してください") {
-      event.setCancelled(true)
-
-      //プレイヤーインベントリのクリックの場合終了
-      if (event.getClickedInventory.getType == InventoryType.PLAYER) return
-
-      val meta = itemstackcurrent.getItemMeta
-
-      /*
-			 * クリックしたボタンに応じた各処理内容の記述ここから
-			 */
-      val byteArrayDataOutput = ByteStreams.newDataOutput()
-
-      //ページ変更処理
-      val displayName = meta.getDisplayName
-      val targetServerName =
-        if (displayName.contains("アルカディアサーバー")) "s1"
-        else if (displayName.contains("エデンサーバー")) "s2"
-        else if (displayName.contains("ヴァルハラサーバー")) "s3"
-        else if (displayName.contains("建築サーバー")) "s8"
-        else if (displayName.contains("公共施設サーバー")) "s7"
-        else throw new IllegalStateException("Reached unreachable segment.")
-
-      byteArrayDataOutput.writeUTF("Connect")
-      byteArrayDataOutput.writeUTF(targetServerName)
-      player.sendPluginMessage(SeichiAssist.instance, "BungeeCord", byteArrayDataOutput.toByteArray)
-    }
-  }
-
-  //追加!!!
-  //スキルメニューの処理
-  @EventHandler
-  def onPlayerClickPassiveSkillSellectEvent(event: InventoryClickEvent): Unit = {
-    //外枠のクリック処理なら終了
-    if (event.getClickedInventory == null) {
-      return
-    }
-
-    val itemstackcurrent = event.getCurrentItem
-    val view = event.getView
-    val he = view.getPlayer
-    //インベントリを開けたのがプレイヤーではない時終了
-    if (he.getType != EntityType.PLAYER) {
-      return
-    }
-
-    val topinventory = view.getTopInventory.ifNull {
-      return
-    }
-    //インベントリが存在しない時終了
-    //インベントリサイズが36でない時終了
-    if (topinventory.row != 4) {
-      return
-    }
-    val player = he.asInstanceOf[Player]
-    val uuid = player.getUniqueId
-    val playerdata = playerMap(uuid)
-
-    //経験値変更用のクラスを設定
-    //new ExperienceManager expman = new new ExperienceManager(player);
-
-
-    //インベントリ名が以下の時処理
-    if (topinventory.getTitle == DARK_PURPLE.toString + "" + BOLD + "整地スキル切り替え") {
-      event.setCancelled(true)
-
-      //プレイヤーインベントリのクリックの場合終了
-      if (event.getClickedInventory.getType == InventoryType.PLAYER) {
-        return
-      }
-      val isSkull = itemstackcurrent.getType == Material.SKULL_ITEM
-
-      /*
-			 * クリックしたボタンに応じた各処理内容の記述ここから
-			 */
-
-      //ページ変更処理
-      // =>
-      if (isSkull && itemstackcurrent.getItemMeta.asInstanceOf[SkullMeta].getOwner == "MHF_ArrowLeft") {
-        import com.github.unchama.seichiassist.concurrent.PluginExecutionContexts.layoutPreparationContext
-
-        unsafe.runAsyncTargetedEffect(player)(
-          sequentialEffect(
-            CommonSoundEffects.menuTransitionFenceSound,
-            StickMenu.firstPage.open
-          ),
-          "棒メニューの1ページ目を開く"
-        )
-      } else {
-        itemstackcurrent.getType match {
-          case Material.DIAMOND_PICKAXE =>
-            // 複数破壊トグル
-
-            if (playerdata.level >= SeichiAssist.seichiAssistConfig.getMultipleIDBlockBreaklevel) {
-              playerdata.settings.multipleidbreakflag = !playerdata.settings.multipleidbreakflag
-              if (playerdata.settings.multipleidbreakflag) {
-                player.playSound(player.getLocation, Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1f, 1f)
-                player.sendMessage(GREEN.toString + "複数種類同時破壊:ON")
-              } else {
-                player.playSound(player.getLocation, Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1f, 0.5.toFloat)
-                player.sendMessage(RED.toString + "複数種類同時破壊:OFF")
-              }
-              val itemmeta = itemstackcurrent.getItemMeta
-              itemstackcurrent.setItemMeta(MenuInventoryData.MultipleIDBlockBreakToggleMeta(playerdata, itemmeta))
-            } else {
-              player.sendMessage("整地レベルが足りません")
-              player.playSound(player.getLocation, Sound.BLOCK_GLASS_PLACE, 1f, 0.1.toFloat)
-            }
-
-          case Material.DIAMOND_AXE =>
-            playerdata.chestflag = false
-            player.sendMessage(GREEN.toString + "スキルでのチェスト破壊を無効化しました。")
-            player.playSound(player.getLocation, Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1f, 0.5.toFloat)
-            player.openInventory(MenuInventoryData.getPassiveSkillMenuData(player))
-
-          case Material.CHEST =>
-            playerdata.chestflag = true
-            player.sendMessage(RED.toString + "スキルでのチェスト破壊を有効化しました。")
-            player.playSound(player.getLocation, Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1f, 1f)
-            player.openInventory(MenuInventoryData.getPassiveSkillMenuData(player))
-
-          case Material.STICK =>
-            player.sendMessage(WHITE.toString + "パッシブスキル:" + YELLOW + "" + UNDERLINE + "" + BOLD + "Gigantic" + RED + UNDERLINE + "" + BOLD + "Berserk" + WHITE + "はレベル10以上から使用可能です")
-            player.playSound(player.getLocation, Sound.BLOCK_GLASS_PLACE, 1f, 0.1.toFloat)
-
-          case Material.WOOD_SWORD | Material.STONE_SWORD | Material.GOLD_SWORD | Material.IRON_SWORD | Material.DIAMOND_SWORD =>
-            if (playerdata.giganticBerserk.canEvolve) {
-              player.openInventory(MenuInventoryData.getGiganticBerserkEvolutionMenu(player))
-              player.playSound(player.getLocation, Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1f, 0.5.toFloat)
-            } else {
-              player.sendMessage(RED.toString + "進化条件を満たしていません")
-            }
-
-          case _ =>
-        }
-      }
-    }
-  }
 
   //スキルメニューの処理
   @EventHandler
@@ -258,7 +92,7 @@ class PlayerInventoryListener extends Listener {
                 playerdata.activeskilldata.skilltype = 0
                 playerdata.activeskilldata.skillnum = 0
               } else {
-                playerdata.activeskilldata.updateSkill(player, typeNum, skilllevel, 1)
+                playerdata.activeskilldata.updateSkill(typeNum, skilllevel, 1)
                 player.sendMessage(s"${GREEN}アクティブスキル:$name  が選択されました")
                 player.playSound(player.getLocation, Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1f, 0.1.toFloat)
               }
@@ -279,7 +113,7 @@ class PlayerInventoryListener extends Listener {
               playerdata.activeskilldata.skilltype = 0
               playerdata.activeskilldata.skillnum = 0
             } else {
-              playerdata.activeskilldata.updateSkill(player, typeNum, skilllevel, 1)
+              playerdata.activeskilldata.updateSkill(typeNum, skilllevel, 1)
               player.sendMessage(s"${GREEN}アクティブスキル:$name  が選択されました")
               player.playSound(player.getLocation, Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1f, 0.1.toFloat)
             }
@@ -299,7 +133,7 @@ class PlayerInventoryListener extends Listener {
               playerdata.activeskilldata.skilltype = 0
               playerdata.activeskilldata.skillnum = 0
             } else {
-              playerdata.activeskilldata.updateSkill(player, typeNum, skilllevel, 1)
+              playerdata.activeskilldata.updateSkill(typeNum, skilllevel, 1)
               player.sendMessage(s"${GREEN}アクティブスキル:$name  が選択されました")
               player.playSound(player.getLocation, Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1f, 0.1.toFloat)
             }
@@ -505,7 +339,7 @@ class PlayerInventoryListener extends Listener {
         player.openInventory(MenuInventoryData.getBuyRecordMenuData(player))
         return
       } else {
-        val skilleffect = ActiveSkillEffect.values
+        val skilleffect = ActiveSkillNormalEffect.values
         skilleffect.foreach { activeSkillEffect =>
           if (currentType == activeSkillEffect.material) {
             if (playerdata.activeskilldata.effectnum == activeSkillEffect.num) {
@@ -536,7 +370,7 @@ class PlayerInventoryListener extends Listener {
       //ここからエフェクト開放の処理
       if (currentType == Material.BEDROCK) {
         val itemmeta = itemstackcurrent.getItemMeta
-        val skilleffect = ActiveSkillEffect.values
+        val skilleffect = ActiveSkillNormalEffect.values
         skilleffect.foreach { activeSkillEffect =>
           if (itemmeta.getDisplayName.contains(activeSkillEffect.nameOnUI)) {
             if (playerdata.activeskilldata.effectpoint < activeSkillEffect.usePoint) {
@@ -647,7 +481,7 @@ class PlayerInventoryListener extends Listener {
 
               //開く音を再生
               player.playSound(player.getLocation, Sound.BLOCK_FENCE_GATE_OPEN, 1f, 0.1.toFloat)
-              player.openInventory(MenuInventoryData.getRankingList(page_display - 1))
+              player.openInventory(MenuInventoryData.getRankingBySeichiAmount(page_display - 1))
             }
 
           case "MHF_ArrowUp" =>
@@ -657,7 +491,7 @@ class PlayerInventoryListener extends Listener {
 
               //開く音を再生
               player.playSound(player.getLocation, Sound.BLOCK_FENCE_GATE_OPEN, 1f, 0.1.toFloat)
-              player.openInventory(MenuInventoryData.getRankingList(page_display - 1))
+              player.openInventory(MenuInventoryData.getRankingBySeichiAmount(page_display - 1))
             }
 
           case _ =>
@@ -723,7 +557,7 @@ class PlayerInventoryListener extends Listener {
 
           //開く音を再生
           player.playSound(player.getLocation, Sound.BLOCK_FENCE_GATE_OPEN, 1f, 0.1.toFloat)
-          player.openInventory(MenuInventoryData.getRankingList_playtick(page_display - 1))
+          player.openInventory(MenuInventoryData.getRankingByPlayingTime(page_display - 1))
         }
       } else if (isSkull && itemstackcurrent.getItemMeta.asInstanceOf[SkullMeta].getOwner == "MHF_ArrowUp") {
         val itemmeta = itemstackcurrent.getItemMeta
@@ -732,7 +566,7 @@ class PlayerInventoryListener extends Listener {
 
           //開く音を再生
           player.playSound(player.getLocation, Sound.BLOCK_FENCE_GATE_OPEN, 1f, 0.1.toFloat)
-          player.openInventory(MenuInventoryData.getRankingList_playtick(page_display - 1))
+          player.openInventory(MenuInventoryData.getRankingByPlayingTime(page_display - 1))
         }
       }
     }
@@ -799,7 +633,7 @@ class PlayerInventoryListener extends Listener {
 
               //開く音を再生
               player.playSound(player.getLocation, Sound.BLOCK_FENCE_GATE_OPEN, 1f, 0.1.toFloat)
-              player.openInventory(MenuInventoryData.getRankingList_p_vote(page_display - 1))
+              player.openInventory(MenuInventoryData.getRankingByVotingCount(page_display - 1))
             }
 
           case "MHF_ArrowUp" =>
@@ -809,7 +643,7 @@ class PlayerInventoryListener extends Listener {
 
               //開く音を再生
               player.playSound(player.getLocation, Sound.BLOCK_FENCE_GATE_OPEN, 1f, 0.1.toFloat)
-              player.openInventory(MenuInventoryData.getRankingList_p_vote(page_display - 1))
+              player.openInventory(MenuInventoryData.getRankingByVotingCount(page_display - 1))
             }
         }
       }
@@ -877,7 +711,7 @@ class PlayerInventoryListener extends Listener {
 
               //開く音を再生
               player.playSound(player.getLocation, Sound.BLOCK_FENCE_GATE_OPEN, 1f, 0.1.toFloat)
-              player.openInventory(MenuInventoryData.getRankingList_premiumeffectpoint(page_display - 1))
+              player.openInventory(MenuInventoryData.getRankingByPremiumEffectPoint(page_display - 1))
             }
 
           case "MHF_ArrowUp" =>
@@ -886,7 +720,7 @@ class PlayerInventoryListener extends Listener {
 
               //開く音を再生
               player.playSound(player.getLocation, Sound.BLOCK_FENCE_GATE_OPEN, 1f, 0.1.toFloat)
-              player.openInventory(MenuInventoryData.getRankingList_premiumeffectpoint(page_display - 1))
+              player.openInventory(MenuInventoryData.getRankingByPremiumEffectPoint(page_display - 1))
             }
         }
       }
@@ -1477,89 +1311,6 @@ class PlayerInventoryListener extends Listener {
   }
 
   @EventHandler
-  def onHomeMenuEvent(event: InventoryClickEvent): Unit = {
-    //外枠のクリック処理なら終了
-    if (event.getClickedInventory == null) {
-      return
-    }
-
-    val itemstackcurrent = event.getCurrentItem
-    val view = event.getView
-    val he = view.getPlayer
-    //インベントリを開けたのがプレイヤーではない時終了
-    if (he.getType != EntityType.PLAYER) {
-      return
-    }
-
-    val topinventory = view.getTopInventory.ifNull {
-      return
-    }
-    //インベントリが存在しない時終了
-    //インベントリサイズが3列でない時終了
-    if (topinventory.row != 3) {
-      return
-    }
-    val player = he.asInstanceOf[Player]
-    val uuid = player.getUniqueId
-    val playerdata = playerMap(uuid)
-    val itemmeta = itemstackcurrent.getItemMeta
-
-    if (topinventory.getTitle == DARK_PURPLE.toString + "" + BOLD + "ホームメニュー") {
-      event.setCancelled(true)
-
-      if (event.getClickedInventory.getType == InventoryType.PLAYER) {
-        return
-      }
-
-      /*
-			 * クリックしたボタンに応じた各処理内容の記述ここから
-			 */
-
-      if (itemmeta.getDisplayName.contains("ホームポイントにワープ")) {
-        player.chat("/home")
-        player.playSound(player.getLocation, Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1f, 1f)
-      } else if (itemmeta.getDisplayName.contains("ホームポイントを設定")) {
-        player.playSound(player.getLocation, Sound.BLOCK_FENCE_GATE_OPEN, 1f, 0.1.toFloat)
-        playerdata.selectHomeNum = 0
-        player.openInventory(MenuInventoryData.getCheckSetHomeMenuData(player))
-      }
-      for (x <- 1 to SeichiAssist.seichiAssistConfig.getSubHomeMax) {
-        if (itemmeta.getDisplayName.contains("サブホームポイント" + x + "にワープ")) {
-          player.chat(s"/subhome warp $x")
-          player.playSound(player.getLocation, Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1f, 1f)
-        } else if (itemmeta.getDisplayName.contains("サブホームポイント" + x + "の情報")) {
-          player.chat(s"/subhome name $x")
-          player.closeInventory()
-          player.playSound(player.getLocation, Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1f, 1f)
-        } else if (itemmeta.getDisplayName.contains("サブホームポイント" + x + "を設定")) {
-          player.playSound(player.getLocation, Sound.BLOCK_FENCE_GATE_OPEN, 1f, 0.1.toFloat)
-          playerdata.selectHomeNum = x
-          player.openInventory(MenuInventoryData.getCheckSetHomeMenuData(player))
-        }
-      }
-
-    } else if (topinventory.getTitle.contains("ホームポイントを変更しますか?")) {
-      event.setCancelled(true)
-
-      if (event.getClickedInventory.getType == InventoryType.PLAYER) {
-        return
-      }
-
-      if (itemmeta.getDisplayName.contains("変更する")) {
-        player.playSound(player.getLocation, Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1f, 1f)
-        if (playerdata.selectHomeNum == 0)
-          player.chat("/sethome")
-        else
-          player.chat("/subhome set " + playerdata.selectHomeNum)
-        player.closeInventory()
-      } else if (itemmeta.getDisplayName.contains("変更しない")) {
-        player.playSound(player.getLocation, Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1f, 1f)
-        player.closeInventory()
-      }
-    }
-  }
-
-  @EventHandler
   def onGiganticBerserkMenuEvent(event: InventoryClickEvent): Unit = {
     //外枠のクリック処理なら終了
     if (event.getClickedInventory == null) {
@@ -1593,7 +1344,7 @@ class PlayerInventoryListener extends Listener {
         playerdata.giganticBerserk = GiganticBerserk(0, 0, playerdata.giganticBerserk.stage + 1, canEvolve = false)
         player.playSound(player.getLocation, Sound.BLOCK_END_GATEWAY_SPAWN, 1f, 0.5.toFloat)
         player.playSound(player.getLocation, Sound.ENTITY_ENDERDRAGON_AMBIENT, 1f, 0.8.toFloat)
-        player.openInventory(MenuInventoryData.getGiganticBerserkEvolution2Menu(player))
+        player.openInventory(MenuInventoryData.getGiganticBerserkAfterEvolutionMenu(player))
       }
     } else if (topinventory.getTitle == LIGHT_PURPLE.toString + "" + BOLD + "スキルを進化させました") {
       event.setCancelled(true)

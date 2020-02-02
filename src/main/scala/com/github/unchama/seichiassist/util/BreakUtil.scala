@@ -136,7 +136,7 @@ object BreakUtil {
             case others@_ => others
           }
           .filter {
-            case Material.GRASS_PATH | Material.SOIL | Material.MOB_SPAWNER => false
+            case Material.GRASS_PATH | Material.SOIL | Material.MOB_SPAWNER | Material.ENDER_PORTAL_FRAME | Material.ENDER_PORTAL => false
             case _ => true
           }
           .foreach(player.incrementStatistic(Statistic.MINE_BLOCK, _))
@@ -237,7 +237,7 @@ object BreakUtil {
 
     blockMaterial match {
       case Material.GRASS_PATH | Material.SOIL => return Some(new ItemStack(Material.DIRT))
-      case Material.MOB_SPAWNER => return None
+      case Material.MOB_SPAWNER | Material.ENDER_PORTAL_FRAME | Material.ENDER_PORTAL => return None
       case _ =>
     }
 
@@ -376,10 +376,6 @@ object BreakUtil {
     IntStream.range(0, num)
       .filter { _ => probability > rand.nextDouble() }
       .count().toShort
-  }
-
-  def BlockEqualsMaterialList(block: Block): Boolean = {
-    MaterialSets.materials.contains(block.getType)
   }
 
   /**
