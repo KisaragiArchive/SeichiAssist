@@ -31,7 +31,6 @@ jobs:
         run: sudo service mysql stop # Shutdown the Default MySQL, "sudo" is necessary, please not remove it
       - name: Clean Sockets
         run: |
-          mysql.server restart
           sudo rm -f /var/run/mysqld/mysqld.sock
           sudo rm -f /tmp/mysql.sock
           sudo /etc/init.d/mysql start
