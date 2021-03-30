@@ -25,16 +25,16 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
       # Shutdown default MySQL
-      - name: Shutdown Ubuntu MySQL (SUDO)
-        run: sudo service mysql stop # Shutdown the Default MySQL, "sudo" is necessary, please not remove it
-      - name: Uninstall MySQL
-        run: sudo apt remove mysql-server
-      - name: Install MariaDB
-        run: sudo apt-get install mariadb-server
-      - name: Clean Sockets
-        run: |
-          sudo rm -f /var/run/mysqld/mysqld.sock
-          sudo rm -f /tmp/mysql.sock
+      #- name: Shutdown Ubuntu MySQL (SUDO)
+      #  run: sudo service mysql stop # Shutdown the Default MySQL, "sudo" is necessary, please not remove it
+      #- name: Uninstall MySQL
+      #  run: sudo apt remove mysql-server
+      #- name: Install MariaDB
+      #  run: sudo apt-get install mariadb-server
+      #- name: Clean Sockets
+      #  run: |
+      #    sudo rm -f /var/run/mysqld/mysqld.sock
+      #    sudo rm -f /tmp/mysql.sock
       - name: Fetch initial SQL files
         run: |
           r=$(curl -I https://redmine.seichi.click/attachments/download/895/gachadata.sql | head -n 1 | awk '{print $2}')
@@ -57,25 +57,25 @@ jobs:
       #    mariadb version: '10.1.37' # Optional, default value is "latest". The version of the MariaDB
       #    mysql root password: ${{ secrets.RootPassword }} # Required if "mysql user" is empty, default is empty. The root superuser password
       # Runs a set of commands using the runners shell
-      - name: Clean Sockets (2)
-        run: |
-          sudo rm -f /var/run/mysqld/mysqld.sock
-          sudo rm -f /tmp/mysql.sock
-      - name: Init MariaDB
-        run: |
-          sudo mysql -u root --password= -e "
-          UPDATE mysql.user SET Password=PASSWORD('${{ secrets.RootPassword }}') WHERE User='root';
-          DELETE FROM mysql.user WHERE User='';
-          DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
-          DROP DATABASE test;
-          DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
-          FLUSH PRIVILEGES;"
+      #- name: Clean Sockets (2)
+      #  run: |
+      #    sudo rm -f /var/run/mysqld/mysqld.sock
+      #    sudo rm -f /tmp/mysql.sock
+      #- name: Init MariaDB
+      #  run: |
+      #    sudo mysql -u root --password= -e "
+      #    UPDATE mysql.user SET Password=PASSWORD('${{ secrets.RootPassword }}') WHERE User='root';
+      #    DELETE FROM mysql.user WHERE User='';
+      #    DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
+      #    DROP DATABASE test;
+      #    DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+      #    FLUSH PRIVILEGES;"
       - name: Apply initial SQL
         run: |
           echo Apply initial SQL: gachadata.sql...
-          sudo mariadb -P 3306 -h 127.0.0.1 -u root -p ${{ secrets.RootPassword }} < gachadata.sql
+          sudo mysql -u root -p < gachadata.sql
           echo Apply initial SQL: msgachadata.sql...
-          sudo mariadb -P 3306 -h 127.0.0.1 -u root -p ${{ secrets.RootPassword }} < msgachadata.sql
+          sudo mysql -u root -p < msgachadata.sql
           
           
           
