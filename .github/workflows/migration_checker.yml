@@ -61,6 +61,15 @@ jobs:
         run: |
           sudo rm -f /var/run/mysqld/mysqld.sock
           sudo rm -f /tmp/mysql.sock
+      - name: Init MariaDB
+        run: |
+          mysql -u root --password= -e "
+          UPDATE mysql.user SET Password=PASSWORD('${{ secrets.RootPassword }}') WHERE User='root';
+          DELETE FROM mysql.user WHERE User='';
+          DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
+          DROP DATABASE test;
+          DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+          FLUSH PRIVILEGES;"
       - name: Apply initial SQL
         run: |
           echo Apply initial SQL: gachadata.sql...
