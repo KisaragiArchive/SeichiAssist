@@ -24,6 +24,10 @@ jobs:
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
+      # Shutdown default MySQL
+      - name: Shutdown Ubuntu MySQL (SUDO)
+        run: sudo service mysql stop # Shutdown the Default MySQL, "sudo" is necessary, please not remove it
+
       - name: Fetch initial SQL files
         run: |
           r=$(curl -I https://redmine.seichi.click/attachments/download/895/gachadata.sql | head -n 1 | awk '{print $2}')
