@@ -26,14 +26,14 @@ jobs:
       - uses: actions/checkout@v2
       - name: Fetch initial SQL files
         run: |
-          $r=$(curl -I https://redmine.seichi.click/attachments/download/895/gachadata.sql | head -n 1 | awk '{print $2}')
+          r=$(curl -I https://redmine.seichi.click/attachments/download/895/gachadata.sql | head -n 1 | awk '{print $2}')
           if [[ "$r" -ne "200" ]]; then
           echo "status: $r"
           exit 1
           fi
           wget https://redmine.seichi.click/attachments/download/895/gachadata.sql
           
-          $r=$(curl -I https://redmine.seichi.click/attachments/download/894/msgachadata.sql | head -n 1 | awk '{print $2}')
+          r=$(curl -I https://redmine.seichi.click/attachments/download/894/msgachadata.sql | head -n 1 | awk '{print $2}')
           if [[ "$r" -ne "200" ]]; then
           echo "status: $r"
           exit 1
