@@ -2,6 +2,7 @@
 
 [![CircleCI](https://circleci.com/gh/GiganticMinecraft/SeichiAssist/tree/master.svg?style=svg)](https://circleci.com/gh/GiganticMinecraft/SeichiAssist/tree/master)
 
+<!-- dummy -->
 ## 開発環境
 - [Intellij IDEA](https://www.jetbrains.com/idea/) などの統合開発環境
 - [AdoptOpenJDK 1.8](https://adoptopenjdk.net/?variant=openjdk8&jvmVariant=hotspot)
