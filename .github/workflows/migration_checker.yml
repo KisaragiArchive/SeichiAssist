@@ -49,9 +49,9 @@ jobs:
       - name: Apply initial SQL
         run: |
           echo Apply initial SQL: gachadata.sql...
-          sudo mysql -h localhost -u root -p ${{ secrets.RootPassword }} < gachadata.sql
+          sudo mysql -P 3306 -h localhost -u root -p ${{ secrets.RootPassword }} < gachadata.sql
           echo Apply initial SQL: msgachadata.sql...
-          sudo mysql -h localhost -u root -p ${{ secrets.RootPassword }} < msgachadata.sql
+          sudo mysql -P 3306 -h localhost -u root -p ${{ secrets.RootPassword }} < msgachadata.sql
           
           
           
