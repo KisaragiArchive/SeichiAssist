@@ -33,7 +33,6 @@ jobs:
         run: |
           sudo rm -f /var/run/mysqld/mysqld.sock
           sudo rm -f /tmp/mysql.sock
-          sudo /etc/init.d/mysql start
       - name: Fetch initial SQL files
         run: |
           r=$(curl -I https://redmine.seichi.click/attachments/download/895/gachadata.sql | head -n 1 | awk '{print $2}')
@@ -56,6 +55,10 @@ jobs:
           mariadb version: '10.1.37' # Optional, default value is "latest". The version of the MariaDB
           mysql root password: ${{ secrets.RootPassword }} # Required if "mysql user" is empty, default is empty. The root superuser password
       # Runs a set of commands using the runners shell
+      - name: Clean Sockets (2)
+        run: |
+          sudo rm -f /var/run/mysqld/mysqld.sock
+          sudo rm -f /tmp/mysql.sock
       - name: Apply initial SQL
         run: |
           echo Apply initial SQL: gachadata.sql...
