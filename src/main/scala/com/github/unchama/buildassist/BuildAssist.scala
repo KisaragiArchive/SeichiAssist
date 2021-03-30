@@ -1,101 +1,81 @@
 package com.github.unchama.buildassist
 
-import java.util
-import java.util.{ArrayList, EnumSet, UUID}
-
-import com.github.unchama.buildassist.listener.{BlockLineUpTriggerListener, BlockPlaceEventListener, EntityListener, PlayerJoinListener, PlayerLeftClickListener, PlayerQuitListener, TilingSkillTriggerListener}
-import org.bukkit.command.{Command, CommandExecutor, CommandSender}
+import cats.effect.{IO, SyncIO}
+import com.github.unchama.buildassist.listener._
+import com.github.unchama.buildassist.menu.BuildAssistMenuRouter
+import com.github.unchama.datarepository.KeyedDataRepository
+import com.github.unchama.generic.effect.concurrent.ReadOnlyRef
+import com.github.unchama.generic.effect.unsafe.EffectEnvironment
+import com.github.unchama.seichiassist.subsystems.buildcount.domain.playerdata.BuildAmountData
+import com.github.unchama.seichiassist.subsystems.mana.ManaApi
+import com.github.unchama.seichiassist.subsystems.managedfly.ManagedFlyApi
+import com.github.unchama.seichiassist.{DefaultEffectEnvironment, subsystems}
+import org.bukkit.entity.Player
 import org.bukkit.plugin.Plugin
-import org.bukkit.scheduler.BukkitTask
 import org.bukkit.{Bukkit, Material}
 
+import java.util
+import java.util.UUID
 import scala.collection.mutable
 
-class BuildAssist(plugin: Plugin) {
+class BuildAssist(plugin: Plugin)
+                 (implicit
+                  flyApi: ManagedFlyApi[SyncIO, Player],
+                  buildCountAPI: subsystems.buildcount.BuildCountAPI[SyncIO, Player],
+                  manaApi: ManaApi[IO, SyncIO, Player]) {
 
-  import collection.JavaConverters._
+  // TODO この辺のフィールドを整理する
 
-  //起動するタスクリスト
-  private val tasklist = new util.ArrayList[BukkitTask]()
-  private var commandlist = mutable.HashMap[String, CommandExecutor]()
+  /**
+   * 永続化されない、プレーヤーのセッション内でのみ有効な一時データを管理するMap。
+   * [[TemporaryDataInitializer]] によって初期化、削除される。
+   */
+  val temporaryData: mutable.HashMap[UUID, TemporaryMutableBuildAssistPlayerData] = mutable.HashMap()
+
+  val buildAmountDataRepository: KeyedDataRepository[Player, ReadOnlyRef[SyncIO, BuildAmountData]] =
+    buildCountAPI.playerBuildAmountRepository
 
   {
     BuildAssist.plugin = plugin
+    BuildAssist.instance = this
   }
 
   def onEnable(): Unit = {
+    implicit val menuRouter: BuildAssistMenuRouter[IO] = {
+      import com.github.unchama.seichiassist.concurrent.PluginExecutionContexts.{layoutPreparationContext, onMainThread}
+
+      BuildAssistMenuRouter.apply
+    }
+
     //コンフィグ系の設定は全てConfig.javaに移動
     BuildAssist.config = new BuildAssistConfig(plugin)
     BuildAssist.config.loadConfig()
 
+    import buildCountAPI._
+    import menuRouter._
 
-    //コマンドの登録
-    commandlist = mutable.HashMap()
-    commandlist += "fly" -> new FlyCommand()
+    implicit val effectEnvironment: EffectEnvironment = DefaultEffectEnvironment
 
-    Bukkit.getServer.getPluginManager.registerEvents(new PlayerJoinListener(), plugin)
-    Bukkit.getServer.getPluginManager.registerEvents(new EntityListener(), plugin)
-    Bukkit.getServer.getPluginManager.registerEvents(PlayerLeftClickListener, plugin)
-    Bukkit.getServer.getPluginManager.registerEvents(new PlayerInventoryListener(), plugin)
-    Bukkit.getServer.getPluginManager.registerEvents(new PlayerQuitListener(), plugin) //退出時
-    Bukkit.getServer.getPluginManager.registerEvents(new BlockPlaceEventListener(), plugin) //ブロックを置いた時
-    Bukkit.getServer.getPluginManager.registerEvents(BlockLineUpTriggerListener, plugin) //ブロックを並べるスキル
-    Bukkit.getServer.getPluginManager.registerEvents(TilingSkillTriggerListener, plugin) //一括設置スキル
+    val listeners = List(
+      new BuildMainMenuOpener(),
+      new PlayerInventoryListener(),
+      new TemporaryDataInitializer(this.temporaryData),
+      new BlockLineUpTriggerListener[SyncIO],
+      new TilingSkillTriggerListener[SyncIO],
+    )
 
-
-    for (p <- Bukkit.getServer.getOnlinePlayers.asScala) {
-      val uuid = p.getUniqueId
-
-      val playerdata = new PlayerData(p)
-
-      playerdata.updateLevel(p)
-
-      BuildAssist.playermap += uuid -> playerdata
+    listeners.foreach { listener =>
+      Bukkit.getServer.getPluginManager.registerEvents(listener, plugin)
     }
+
     plugin.getLogger.info("BuildAssist is Enabled!")
-
-    tasklist.add(new MinuteTaskRunnable().runTaskTimer(plugin, 0, 1200))
-  }
-
-  def onCommand(sender: CommandSender, cmd: Command, label: String, args: Array[String]): Boolean = {
-    commandlist.get(cmd.getName).exists(_.onCommand(sender, cmd, label, args))
-  }
-
-  def onDisable(): Unit = {
-    for (task <- this.tasklist.asScala) {
-      task.cancel()
-    }
   }
 
 }
 
 object BuildAssist {
-  //Playerdataに依存するデータリスト
-  val playermap: mutable.HashMap[UUID, PlayerData] = mutable.HashMap[UUID, PlayerData]()
-  //lvの閾値
-  val levellist: Seq[Int] = Seq(
-    0, 50, 100, 200, 300,
-    450, 600, 900, 1200, 1600, //10
-    2000, 2500, 3000, 3600, 4300,
-    5100, 6000, 7000, 8200, 9400, //20
-    10800, 12200, 13800, 15400, 17200,
-    19000, 21000, 23000, 25250, 27500, //30
-    30000, 32500, 35500, 38500, 42000,
-    45500, 49500, 54000, 59000, 64000, //40
-    70000, 76000, 83000, 90000, 98000,
-    106000, 115000, 124000, 133000, 143000, //50
-    153000, 163000, 174000, 185000, 196000,
-    208000, 220000, 232000, 245000, 258000, //60
-    271000, 285000, 299000, 313000, 328000,
-    343000, 358000, 374000, 390000, 406000, //70
-    423000, 440000, 457000, 475000, 493000,
-    511000, 530000, 549000, 568000, 588000, //80
-    608000, 628000, 648000, 668000, 688000,
-    708000, 728000, 748000, 768000, 788000, //90
-    808000, 828000, 848000, 868000, 888000,
-    908000, 928000, 948000, 968000, 1000000, //100
-    5000000
-  )
+  var instance: BuildAssist = _
+
   //範囲設置ブロックの対象リスト
   val materiallist: java.util.Set[Material] = util.EnumSet.of(
 
@@ -280,7 +260,6 @@ object BuildAssist {
   )
 
   var plugin: Plugin = _
-  val DEBUG: Boolean = false
   var config: BuildAssistConfig = _
   val line_up_str: Seq[String] = Seq("OFF", "上側", "下側")
   val line_up_step_str: Seq[String] = Seq("上側", "下側", "両方")

@@ -4,16 +4,21 @@ import cats.effect.IO
 import com.github.unchama.itemstackbuilder.{IconItemStackBuilder, SkullItemStackBuilder}
 import com.github.unchama.menuinventory
 import com.github.unchama.menuinventory._
+import com.github.unchama.menuinventory.router.CanOpen
 import com.github.unchama.menuinventory.slot.button.action.{ClickEventFilter, FilteredButtonEffect, LeftClickButtonEffect}
 import com.github.unchama.menuinventory.slot.button.{Button, RecomputedButton, action}
-import com.github.unchama.seasonalevents.events.valentine.Valentine
 import com.github.unchama.seichiassist.concurrent.PluginExecutionContexts
 import com.github.unchama.seichiassist.data.player.settings.BroadcastMutingSettings.{MuteMessageAndSound, ReceiveMessageAndSound, ReceiveMessageOnly}
 import com.github.unchama.seichiassist.menus.CommonButtons
+import com.github.unchama.seichiassist.subsystems.seasonalevents.christmas.Christmas
+import com.github.unchama.seichiassist.subsystems.seasonalevents.christmas.ChristmasItemData.christmasPlayerHead
+import com.github.unchama.seichiassist.subsystems.seasonalevents.valentine.Valentine
+import com.github.unchama.seichiassist.subsystems.seasonalevents.valentine.ValentineItemData.valentinePlayerHead
 import com.github.unchama.seichiassist.util.Util
 import com.github.unchama.seichiassist.util.exp.ExperienceManager
 import com.github.unchama.seichiassist.{SeichiAssist, SkullOwners}
-import com.github.unchama.targetedeffect.player.FocusedSoundEffect
+import com.github.unchama.targetedeffect.commandsender.MessageEffect
+import com.github.unchama.targetedeffect.player.{CommandEffect, FocusedSoundEffect, PlayerEffects}
 import org.bukkit.ChatColor._
 import org.bukkit.entity.Player
 import org.bukkit.inventory.meta.SkullMeta
@@ -24,21 +29,23 @@ import org.bukkit.{Material, Sound}
  */
 object SecondPage extends Menu {
 
-  import PluginExecutionContexts.syncShift
+  import PluginExecutionContexts.onMainThread
   import com.github.unchama.targetedeffect._
   import com.github.unchama.targetedeffect.player.PlayerEffects._
-  import com.github.unchama.targetedeffect.syntax._
   import com.github.unchama.util.InventoryUtil._
   import eu.timepit.refined.auto._
   import menuinventory.syntax._
 
+  class Environment(implicit val ioCanOpenFirstPage: IO CanOpen FirstPage.type)
+
   override val frame: MenuFrame =
     MenuFrame(4.chestRows, s"${LIGHT_PURPLE}木の棒メニュー")
 
-  override def computeMenuLayout(player: Player): IO[MenuSlotLayout] = {
+  override def computeMenuLayout(player: Player)(implicit environment: Environment): IO[MenuSlotLayout] = {
     import ConstantButtons._
     val computations = ButtonComputations(player)
     import computations._
+    import environment._
 
     val constantPart = Map(
       ChestSlotRef(0, 0) -> officialWikiNavigationButton,
@@ -70,7 +77,6 @@ object SecondPage extends Menu {
   private case class ButtonComputations(player: Player) {
 
     import com.github.unchama.seichiassist.concurrent.PluginExecutionContexts.layoutPreparationContext
-    import com.github.unchama.util.syntax._
     import player._
 
     val computeHeadSummoningButton: IO[Button] = RecomputedButton(IO {
@@ -95,26 +101,30 @@ object SecondPage extends Menu {
       }
 
       val effect = action.FilteredButtonEffect(ClickEventFilter.LEFT_CLICK) { _ =>
-        deferredEffect(IO {
+        DeferredEffect(IO {
           val expManager = new ExperienceManager(player)
           if (expManager.hasExp(10000)) {
-            val skullToGive = new SkullItemStackBuilder(getUniqueId).build().modify { stack =>
+            import scala.util.chaining._
+            val skullToGive = new SkullItemStackBuilder(getUniqueId).build().tap { stack =>
               import stack._
-              //バレンタイン中(イベント中かどうかの判断はSeasonalEvent側で行う)
-              setItemMeta {
-                Valentine.playerHeadLore(getItemMeta.asInstanceOf[SkullMeta])
+              // 季節イベント中の特殊lore
+              if (Valentine.isInEvent) setItemMeta {
+                valentinePlayerHead(getItemMeta.asInstanceOf[SkullMeta])
+              }
+              else if (Christmas.isInEventNow) setItemMeta {
+                christmasPlayerHead(getItemMeta.asInstanceOf[SkullMeta])
               }
             }
 
-            sequentialEffect(
+            SequentialEffect(
               Util.grantItemStacksEffect(skullToGive),
               UnfocusedEffect { expManager.changeExp(-10000) },
-              s"${GOLD}経験値10000を消費して自分の頭を召喚しました".asMessageEffect(),
+              MessageEffect(s"${GOLD}経験値10000を消費して自分の頭を召喚しました"),
               FocusedSoundEffect(Sound.BLOCK_ANVIL_PLACE, 1.0f, 1.0f)
             )
           } else {
-            sequentialEffect(
-              s"${RED}必要な経験値が足りません".asMessageEffect(),
+            SequentialEffect(
+              MessageEffect(s"${RED}必要な経験値が足りません"),
               FocusedSoundEffect(Sound.BLOCK_GLASS_PLACE, 1.0f, 0.1f)
             )
           }
@@ -156,15 +166,15 @@ object SecondPage extends Menu {
       } yield Button(
         iconItemStack,
         FilteredButtonEffect(ClickEventFilter.LEFT_CLICK) { _ =>
-          sequentialEffect(
+          SequentialEffect(
             playerData.settings.toggleBroadcastMutingSettings,
             FocusedSoundEffect(Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1.0f, 1.0f),
-            deferredEffect {
+            DeferredEffect {
               playerData.settings.getBroadcastMutingSettings.map {
                 case ReceiveMessageAndSound => s"${GREEN}非表示/消音設定を解除しました"
                 case ReceiveMessageOnly => s"${RED}消音可能な全体通知音を消音します"
                 case MuteMessageAndSound => s"${RED}非表示可能な全体メッセージを非表示にします"
-              }.map(_.asMessageEffect())
+              }.map(MessageEffect(_))
             }
           )
         }
@@ -198,17 +208,17 @@ object SecondPage extends Menu {
       Button(
         iconItemStack,
         FilteredButtonEffect(ClickEventFilter.LEFT_CLICK) { _ =>
-          sequentialEffect(
+          SequentialEffect(
             playerData.settings.toggleDeathMessageMutingSettings,
-            deferredEffect(IO {
+            DeferredEffect(IO {
               val (soundPitch, message) =
                 if (playerData.settings.shouldDisplayDeathMessages)
                   (1.0f, s"${GREEN}死亡メッセージ:表示")
                 else
                   (0.5f, s"${RED}死亡メッセージ:隠す")
 
-              sequentialEffect(
-                message.asMessageEffect(),
+              SequentialEffect(
+                MessageEffect(message),
                 FocusedSoundEffect(Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1.0f, soundPitch)
               )
             })
@@ -247,18 +257,18 @@ object SecondPage extends Menu {
       Button(
         iconItemStack,
         FilteredButtonEffect(ClickEventFilter.LEFT_CLICK) { _ =>
-          sequentialEffect(
+          SequentialEffect(
             playerData.settings.toggleWorldGuardLogEffect,
-            deferredEffect(IO {
+            DeferredEffect(IO {
               val (soundPitch, message) =
                 if (playerData.settings.shouldDisplayWorldGuardLogs)
                   (1.0f, s"${GREEN}ワールドガード保護メッセージ:表示")
                 else
                   (0.5f, s"${RED}ワールドガード保護メッセージ:隠す")
 
-              sequentialEffect(
+              SequentialEffect(
                 FocusedSoundEffect(Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1.0f, soundPitch),
-                message.asMessageEffect()
+                MessageEffect(message)
               )
             })
           )
@@ -299,7 +309,7 @@ object SecondPage extends Menu {
           .build()
       }
 
-      Button(iconItemStack, LeftClickButtonEffect("shareinv".asCommandEffect()))
+      Button(iconItemStack, LeftClickButtonEffect(CommandEffect("shareinv")))
     })
   }
 
@@ -319,9 +329,9 @@ object SecondPage extends Menu {
       Button(
         iconItemStack,
         action.FilteredButtonEffect(ClickEventFilter.LEFT_CLICK) { _ =>
-          sequentialEffect(
+          SequentialEffect(
             closeInventoryEffect,
-            s"$RED$UNDERLINE${SeichiAssist.seichiAssistConfig.getUrl("official")}".asMessageEffect(),
+            MessageEffect(s"$RED$UNDERLINE${SeichiAssist.seichiAssistConfig.getUrl("official")}"),
             FocusedSoundEffect(Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1.0f, 1.0f)
           )
         }
@@ -343,9 +353,9 @@ object SecondPage extends Menu {
       Button(
         iconItemStack,
         FilteredButtonEffect(ClickEventFilter.LEFT_CLICK) { _ =>
-          sequentialEffect(
+          SequentialEffect(
             closeInventoryEffect,
-            s"$RED$UNDERLINE${SeichiAssist.seichiAssistConfig.getUrl("rule")}".asMessageEffect(),
+            MessageEffect(s"$RED$UNDERLINE${SeichiAssist.seichiAssistConfig.getUrl("rule")}"),
             FocusedSoundEffect(Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1.0f, 1.0f)
           )
         }
@@ -368,9 +378,9 @@ object SecondPage extends Menu {
       Button(
         iconItemStack,
         FilteredButtonEffect(ClickEventFilter.LEFT_CLICK) { _ =>
-          sequentialEffect(
+          SequentialEffect(
             closeInventoryEffect,
-            s"$RED$UNDERLINE${SeichiAssist.seichiAssistConfig.getUrl("map")}".asMessageEffect(),
+            MessageEffect(s"$RED$UNDERLINE${SeichiAssist.seichiAssistConfig.getUrl("map")}"),
             FocusedSoundEffect(Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1.0f, 1.0f)
           )
         }
@@ -391,9 +401,9 @@ object SecondPage extends Menu {
       Button(
         iconItemStack,
         action.FilteredButtonEffect(ClickEventFilter.LEFT_CLICK) { _ =>
-          sequentialEffect(
+          SequentialEffect(
             closeInventoryEffect,
-            s"$RED$UNDERLINE${SeichiAssist.seichiAssistConfig.getUrl("jms")}".asMessageEffect(),
+            MessageEffect(s"$RED$UNDERLINE${SeichiAssist.seichiAssistConfig.getUrl("jms")}"),
             FocusedSoundEffect(Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1.0f, 1.0f)
           )
         }
@@ -406,13 +416,13 @@ object SecondPage extends Menu {
         .lore(List(
           s"$RESET${GREEN}不必要なGT大当り景品を",
           s"$RESET${GOLD}椎名林檎$RESET${GREEN}と交換できます",
-          s"$RESET${GREEN}出てきたインベントリーに",
+          s"$RESET${GREEN}出てきたインベントリに",
           s"$RESET${GREEN}交換したい景品を入れて",
           s"$RESET${GREEN}escキーを押してください",
           s"$RESET${DARK_GRAY}たまにアイテムが消失しますが",
           s"$RESET${DARK_GRAY}補償はしていません(ごめんなさい)",
           s"$RESET${DARK_GRAY}神に祈りながら交換しよう",
-          s"${RESET}現在の交換レート:GT景品1つにつき${SeichiAssist.seichiAssistConfig.rateGiganticToRingo()}個",
+          s"${RESET}現在の交換レート:GT景品1つにつき${SeichiAssist.seichiAssistConfig.rateGiganticToRingo}個",
           s"$RESET$DARK_GRAY$DARK_RED${UNDERLINE}クリックで開く"
         ))
         .build()
@@ -420,7 +430,7 @@ object SecondPage extends Menu {
       Button(
         iconItemStack,
         FilteredButtonEffect(ClickEventFilter.LEFT_CLICK) { _ =>
-          sequentialEffect(
+          SequentialEffect(
             FocusedSoundEffect(Sound.BLOCK_CHEST_OPEN, 1.0f, 0.5f),
             // TODO メニューインベントリに差し替える
             openInventoryEffect(
@@ -437,7 +447,7 @@ object SecondPage extends Menu {
         .lore(List(
           s"$RESET${GREEN}不具合によりテクスチャが反映されなくなってしまった",
           s"$RESET${GOLD}ホワイトデーイベント限定タイタン$RESET${GREEN}を修繕できます",
-          s"$RESET${GREEN}出てきたインベントリーに",
+          s"$RESET${GREEN}出てきたインベントリに",
           s"$RESET${GREEN}修繕したいタイタンを入れて",
           s"$RESET${GREEN}escキーを押してください",
           s"$RESET${DARK_GRAY}たまにアイテムが消失しますが",
@@ -451,7 +461,7 @@ object SecondPage extends Menu {
       Button(
         iconItemStack,
         action.FilteredButtonEffect(ClickEventFilter.LEFT_CLICK) { _ =>
-          sequentialEffect(
+          SequentialEffect(
             FocusedSoundEffect(Sound.BLOCK_CHEST_OPEN, 1.0f, 0.5f),
             // TODO メニューインベントリに差し替える
             openInventoryEffect(
@@ -475,7 +485,7 @@ object SecondPage extends Menu {
       Button(
         iconItemStack,
         action.FilteredButtonEffect(ClickEventFilter.LEFT_CLICK) { _ =>
-          sequentialEffect(
+          SequentialEffect(
             FocusedSoundEffect(Sound.BLOCK_CHEST_OPEN, 1.0f, 1.5f),
             // クローズ時に何も処理されないインベントリを開くことでアイテムを虚空に飛ばす
             openInventoryEffect(
@@ -498,10 +508,10 @@ object SecondPage extends Menu {
       Button(
         iconItemStack,
         action.FilteredButtonEffect(ClickEventFilter.LEFT_CLICK) { _ =>
-          sequentialEffect(
+          SequentialEffect(
             closeInventoryEffect,
             FocusedSoundEffect(Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1.0f, 1.0f),
-            "hub".asCommandEffect()
+            PlayerEffects.connectToServerEffect("lobby")
           )
         }
       )

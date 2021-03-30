@@ -1,23 +1,25 @@
-import java.io._
-
 import ResourceFilter.filterResources
 import sbt.Keys.baseDirectory
 
-ThisBuild / scalaVersion     := "2.13.1"
-ThisBuild / version          := "1.2.8"
-ThisBuild / organization     := "click.seichi"
-ThisBuild / description      := "ギガンティック☆整地鯖の独自要素を司るプラグイン"
+import java.io._
+
+ThisBuild / scalaVersion := "2.13.1"
+ThisBuild / version := "1.6.18"
+ThisBuild / organization := "click.seichi"
+ThisBuild / description := "ギガンティック☆整地鯖の独自要素を司るプラグイン"
 
 resolvers ++= Seq(
-  "jitpack.io"             at "https://jitpack.io",
-  "maven.sk89q.com"        at "https://maven.sk89q.com/repo/",
-  "maven.playpro.com"      at "https://maven.playpro.com",
-  "repo.spring.io"         at "https://repo.spring.io/plugins-release/",
+  "jitpack.io" at "https://jitpack.io",
+  "maven.sk89q.com" at "https://maven.sk89q.com/repo/",
+  "maven.playpro.com" at "https://maven.playpro.com",
+  "repo.spring.io" at "https://repo.spring.io/plugins-release/",
   "repo.spongepowered.org" at "https://repo.spongepowered.org/maven",
-  "repo.maven.apache.org"  at "https://repo.maven.apache.org/maven2",
-  "hub.spigotmc.org"       at "https://hub.spigotmc.org/nexus/content/repositories/snapshots",
-  "oss.sonatype.org"       at "https://oss.sonatype.org/content/repositories/snapshots",
-  "nexus.okkero.com"       at "https://nexus.okkero.com/repository/maven-releases/"
+  "repo.maven.apache.org" at "https://repo.maven.apache.org/maven2",
+  "hub.spigotmc.org" at "https://hub.spigotmc.org/nexus/content/repositories/snapshots",
+  "oss.sonatype.org" at "https://oss.sonatype.org/content/repositories/snapshots",
+  "nexus.okkero.com" at "https://nexus.okkero.com/repository/maven-releases/",
+  "maven.elmakers.com" at "https://maven.elmakers.com/repository/", // stouma915#0915の環境ではなぜかspigot-apiがダウンロードできないため一応追加
+  "repo.phoenix616.dev" at "https://repo.phoenix616.dev" // authlibのための
 )
 
 val providedDependencies = Seq(
@@ -26,20 +28,52 @@ val providedDependencies = Seq(
   "commons-codec" % "commons-codec" % "1.12",
   "org.spigotmc" % "spigot-api" % "1.12.2-R0.1-SNAPSHOT",
   "com.sk89q.worldguard" % "worldguard-legacy" % "6.2",
-  "net.coreprotect" % "coreprotect" % "2.14.2"
+  "net.coreprotect" % "coreprotect" % "2.14.2",
+  "com.mojang" % "authlib" % "1.5.25",
+
+  // no runtime
+  "org.typelevel" %% "simulacrum" % "1.0.0"
 ).map(_ % "provided")
 
 val testDependencies = Seq(
   "org.scalamock" %% "scalamock" % "4.4.0",
-  "org.scalatest" %% "scalatest" % "3.1.0",
+  "org.scalatest" %% "scalatest" % "3.2.2",
+  "org.scalatestplus" %% "scalacheck-1-14" % "3.2.2.0",
+  // テスト用のTestSchedulerを使うため
+  "io.monix" %% "monix" % "3.2.2"
 ).map(_ % "test")
 
 val dependenciesToEmbed = Seq(
+  "org.scala-lang.modules" %% "scala-collection-contrib" % "0.2.1",
+
+  // DB
   "org.flywaydb" % "flyway-core" % "5.2.4",
+  "org.scalikejdbc" %% "scalikejdbc" % "3.4.2",
+
+  // redis
+  "com.github.etaty" %% "rediscala" % "1.9.0",
+
+  // effect system
   "org.typelevel" %% "cats-core" % "2.1.0",
   "org.typelevel" %% "cats-effect" % "2.1.0",
+  "co.fs2" %% "fs2-core" % "2.5.0",
+
+  // algebra
+  "io.chrisdavenport" %% "log4cats-core" % "1.1.1",
+  "io.chrisdavenport" %% "log4cats-slf4j" % "1.1.1",
+  "io.chrisdavenport" %% "cats-effect-time" % "0.1.2",
+
+  // logging
+  "org.slf4j" % "slf4j-api" % "1.7.28",
+  "org.slf4j" % "slf4j-jdk14" % "1.7.28",
+  "com.typesafe.scala-logging" % "scala-logging-slf4j_2.10" % "2.1.2",
+
+  // type-safety utils
   "eu.timepit" %% "refined" % "0.9.10",
-  "com.beachape" %% "enumeratum" % "1.5.13"
+  "com.beachape" %% "enumeratum" % "1.5.13",
+
+  // protobuf
+  "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion,
 )
 
 addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.11.0" cross CrossVersion.full)
@@ -81,11 +115,22 @@ unmanagedResources in Compile += baseDirectory.value / "LICENSE"
 excludeFilter in unmanagedResources :=
   filesToBeReplacedInResourceFolder.foldLeft((excludeFilter in unmanagedResources).value)(_.||(_))
 
+logLevel := Level.Debug
+
+// ScalaPBの設定
+PB.protoSources in Compile := Seq(baseDirectory.value / "protocol")
+PB.targets in Compile := Seq(scalapb.gen() -> (sourceManaged in Compile).value / "scalapb")
+
+testOptions in Test += Tests.Argument("-oS")
+
 lazy val root = (project in file("."))
   .settings(
     name := "SeichiAssist",
     assemblyOutputPath in assembly := baseDirectory.value / "target" / "build" / s"SeichiAssist-${version.value}.jar",
     libraryDependencies := providedDependencies ++ testDependencies ++ dependenciesToEmbed,
+    excludeDependencies := Seq(
+      ExclusionRule(organization = "org.bukkit", name = "bukkit")
+    ),
     unmanagedBase := baseDirectory.value / "localDependencies",
     scalacOptions ++= Seq(
       "-encoding", "utf8",
@@ -93,6 +138,7 @@ lazy val root = (project in file("."))
       "-language:higherKinds",
       "-deprecation",
       "-Ypatmat-exhaust-depth", "320",
+      "-Ymacro-annotations",
     ),
     javacOptions ++= Seq("-encoding", "utf8")
   )

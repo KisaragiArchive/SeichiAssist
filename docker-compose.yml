@@ -1,0 +1,134 @@
+version: '3.7'
+
+networks:
+  seichi:
+    external: false
+
+volumes:
+  spigot_a:
+  spigot_b:
+  db-data:
+  redis-data:
+
+services:
+  spigota:
+    build:
+      context: .
+      dockerfile: ./docker/spigot/Dockerfile
+    image: spigot
+    networks:
+      - seichi
+    volumes:
+      - spigot_a:/spigot/
+    ports:
+      - 25566:25565
+      - 7091:7091
+    environment:
+      - JMX_PORT=7091
+      - JMX_BINDING=0.0.0.0
+      - JMX_HOST=localhost
+      - SERVER_NUM=1
+      - SERVER_ID=s1
+      - DB_HOST=db
+      - DB_PASSWORD=unchamaisgod
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - db
+      - redis
+    stdin_open: true
+  spigotb:
+    build:
+      context: .
+      dockerfile: ./docker/spigot/Dockerfile
+    image: spigot
+    networks:
+      - seichi
+    volumes:
+      - spigot_b:/spigot/
+    ports:
+      - 25567:25565
+      - 7092:7091
+    environment:
+      - JMX_PORT=7091
+      - JMX_BINDING=0.0.0.0
+      - JMX_HOST=localhost
+      - SERVER_NUM=2
+      - SERVER_ID=s2
+      - DB_HOST=db
+      - DB_PASSWORD=unchamaisgod
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - db
+      - redis
+    stdin_open: true
+  bungeecord_1:
+    build:
+      context: .
+      dockerfile: ./docker/bungeecord/Dockerfile
+    ports:
+      - 25565:25577
+    networks:
+      - seichi
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SERVER_ID=bungeecord_1
+    depends_on:
+      - spigota
+      - spigotb
+    stdin_open: true
+  bungeecord_2:
+    build:
+      context: .
+      dockerfile: ./docker/bungeecord/Dockerfile
+    ports:
+      - 25564:25577
+    networks:
+      - seichi
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SERVER_ID=bungeecord_2
+    depends_on:
+      - spigota
+      - spigotb
+    stdin_open: true
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:4.8.5
+    environment:
+      - TZ=Asia/Tokyo
+      - PMA_ARBITRARY=1
+      - PMA_HOST=db
+      - PMA_PORT=3306
+      - PMA_USER=root
+      - PMA_PASSWORD=unchamaisgod
+    networks:
+      - seichi
+    ports:
+      - 8080:80
+    depends_on:
+      - db
+  redis:
+    image: "docker.pkg.github.com/giganticminecraft/dockers/bungeesemaphore-redis-dev:a13c60266389"
+    networks:
+      - seichi
+    volumes:
+      - redis-data:/data
+  db:
+    image: mariadb:10.1.38-bionic
+    environment:
+      - TZ=Asia/Tokyo
+      - MYSQL_ROOT_PASSWORD=unchamaisgod
+    command: [
+        '--wait_timeout=86400',
+        '--character-set-server=utf8',
+    ]
+    networks:
+      - seichi
+    volumes:
+      - db-data:/var/lib/mysql
+    ports:
+      - 3306:3306

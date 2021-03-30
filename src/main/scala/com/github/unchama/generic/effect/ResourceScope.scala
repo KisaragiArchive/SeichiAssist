@@ -2,11 +2,11 @@ package com.github.unchama.generic.effect
 
 import cats.Monad
 import cats.data.OptionT
-import cats.effect.concurrent.{Deferred, Ref, TryableDeferred}
-import cats.effect.{CancelToken, Concurrent, Resource}
-import com.github.unchama.generic.OptionTExtra
+import cats.effect.concurrent.Ref
+import cats.effect.{CancelToken, Concurrent, Resource, Sync}
+import com.github.unchama.generic.{ContextCoercion, OptionTExtra}
 
-import scala.collection.concurrent.TrieMap
+import scala.collection.immutable
 
 /**
  * Spigotプラグインのようなユースケースでは、
@@ -32,8 +32,9 @@ import scala.collection.concurrent.TrieMap
  * 解放処理を要求すると、解放に必要なキャンセル処理を受け付けなくなるため、
  * ハングすることが想定される。
  */
-trait ResourceScope[F[_], ResourceHandler] {
-  implicit val monadF: Monad[F]
+trait ResourceScope[ResourceUsageContext[_], DataAccessContext[_], ResourceHandler] {
+  implicit val ResourceUsageContext: Monad[ResourceUsageContext]
+  implicit val DataAccessContext: Monad[DataAccessContext]
 
   import cats.implicits._
 
@@ -41,35 +42,46 @@ trait ResourceScope[F[_], ResourceHandler] {
    * 与えられた`resource`とそれを使用する関数`f`を引数に取る。
    * 確保した資源が`use`によって使われている最中にこのスコープ下に置くような計算を返す。
    */
-  def useTracked[R <: ResourceHandler, A](resource: Resource[F, R])(use: R => F[A]): F[A]
+  def useTracked[R <: ResourceHandler, A](resource: Resource[ResourceUsageContext, R])
+                                         (use: R => ResourceUsageContext[A]): ResourceUsageContext[A]
 
   /**
-   * 「与えられたハンドラがこのスコープの管理下にあるならば解放し、そうでなければ空の値を返す」計算を返す。
+   * 「与えられたハンドラがこのスコープの管理下にあるならば解放する計算を、そうでなければ空の値を返す」計算を返す。
    */
-  def getCancelToken(handler: ResourceHandler): F[Option[CancelToken[F]]]
+  def getCancelToken(handler: ResourceHandler): DataAccessContext[Option[CancelToken[ResourceUsageContext]]]
 
   /**
    * 確保されている資源の集合の計算
    */
-  val trackedHandlers: F[Set[ResourceHandler]]
+  val trackedHandlers: DataAccessContext[Set[ResourceHandler]]
 
   /**
    * 管理下にあるすべてのリソースを解放する計算
    */
-  lazy val releaseAll: CancelToken[F] = trackedHandlers.flatMap(_.toList.map(release).sequence) >> monadF.pure(())
+  lazy val getReleaseAllAction: DataAccessContext[CancelToken[ResourceUsageContext]] = {
+    for {
+      handlersToRelease <- trackedHandlers
+      releaseActions <- handlersToRelease.toList.traverse(getReleaseAction)
+    } yield {
+      releaseActions.sequence.as(())
+    }
+  }
 
   /**
    * 与えられたハンドラが管理下にあれば解放するような計算
    */
-  def release(handler: ResourceHandler): CancelToken[F] = for {
-    optionToken <- getCancelToken(handler)
-    _ <- optionToken.getOrElse(monadF.unit)
-  } yield ()
+  def getReleaseAction(handler: ResourceHandler): DataAccessContext[CancelToken[ResourceUsageContext]] = {
+    for {
+      optionToken <- getCancelToken(handler)
+    } yield {
+      optionToken.getOrElse(ResourceUsageContext.unit)
+    }
+  }
 
   /**
    * 与えられたハンドラがこのスコープの管理下にあるかどうかを判定する計算
    */
-  def isTracked(handler: ResourceHandler): F[Boolean] = trackedHandlers.map(_.contains(handler))
+  def isTracked(handler: ResourceHandler): DataAccessContext[Boolean] = trackedHandlers.map(_.contains(handler))
 }
 
 object ResourceScope {
@@ -78,10 +90,20 @@ object ResourceScope {
    *
    * 参照透明性が無いためunsafe-接頭語がつけられている。
    * 実際、`unsafeCreate` を二回呼んだ時には異なるスコープが作成される。
+   *
    * @tparam F リソースを扱う計算
    * @tparam R リソースハンドラの型
    */
-  def unsafeCreate[F[_]: Concurrent, R]: ResourceScope[F, R] = new TrieMapResourceScope()
+  def unsafeCreate[F[_] : Concurrent, G[_] : Sync : ContextCoercion[*[_], F], R]: ResourceScope[F, G, R] = {
+    new MultiDictResourceScope()
+  }
+
+  /**
+   * 新たな資源スコープを作成する計算。
+   */
+  def create[F[_] : Concurrent, G[_] : Sync : ContextCoercion[*[_], F], R]: F[ResourceScope[F, G, R]] = {
+    Concurrent[F].delay(unsafeCreate[F, G, R])
+  }
 
   /**
    * 新たな資源スコープを作成する。
@@ -89,153 +111,183 @@ object ResourceScope {
    *
    * 参照透明性が無いためunsafe-接頭語がつけられている。
    * 実際、`unsafeCreateSingletonScope` を二回呼んだ時には異なるスコープが作成される。
+   *
    * @tparam F リソースを扱う計算
    * @tparam R リソースハンドラの型
    */
-  def unsafeCreateSingletonScope[F[_]: Concurrent, R]: SingleResourceScope[F, R] = new SingleResourceScope()
+  def unsafeCreateSingletonScope[
+    F[_] : Concurrent,
+    G[_] : Sync : ContextCoercion[*[_], F],
+    R
+  ]: SingleResourceScope[F, G, R] = new SingleResourceScope()
 
   /**
    * `ResourceScope` の標準的な実装。
-   *
-   * `TrieMap` を使用しているものの、
-   * 並行に同一の資源を多数 `useTracked` を通して確保しようとした場合には
-   * 動作が保証されない。
-   *
-   * 具体的には、`useTracked` は `release` と `register` の間で
-   * Mapの要素が(並行に)変更されたかどうかを検査していない。
-   * もしここで同タイミングでの確保が行われた場合資源が漏洩する可能性がある。
    */
-  class TrieMapResourceScope[F[_], ResourceHandler] private[ResourceScope] (implicit val monadF: Concurrent[F])
-    extends ResourceScope[F, ResourceHandler] {
-    import scala.collection.mutable
+  class MultiDictResourceScope[F[_], G[_], ResourceHandler] private[ResourceScope](implicit val ResourceUsageContext: Concurrent[F],
+                                                                                   val DataAccessContext: Sync[G],
+                                                                                   contextCoercion: ContextCoercion[G, F])
+    extends ResourceScope[F, G, ResourceHandler] {
 
     /**
      * この`Map`の終域にある`CancelToken[F]`は、
      *  - ハンドラを管理下から外し
      *  - ハンドラをリソースとして解放する
-     * 計算である。
+     *    計算である。
      *
      * ここで、管理下から外すというのは、単にこの`Map`からハンドラを取り除く処理である。
      */
-    private val usageCancellationMap: mutable.Map[ResourceHandler, CancelToken[F]] = TrieMap()
+    private val handlerToCancelTokens: Ref[G, immutable.MultiDict[ResourceHandler, CancelToken[F]]] =
+      Ref.unsafe(immutable.MultiDict.empty[ResourceHandler, CancelToken[F]])
 
+    import ResourceUsageContext._
     import cats.implicits._
-    import monadF._
 
     override def useTracked[R <: ResourceHandler, A](resource: Resource[F, R])(use: R => F[A]): F[A] = {
       for {
         allocated <- resource.allocated
         (handler, releaseResource) = allocated
 
-        // 二重確保を避けるため確保されていたリソースがあれば解放してから確保する
-        _ <- release(handler)
-
         // use中に解放命令が入った時、useをキャンセルしforgetUsage >> releaseResourceを行うように
         a <- ConcurrentExtra.withSelfCancellation[F, A] { cancelToken =>
-          val registerHandler = delay { usageCancellationMap += (handler -> cancelToken) }
-          val forgetUsage = delay { usageCancellationMap.remove(handler) }
+          val registerHandler = handlerToCancelTokens.update(_.add(handler, cancelToken))
+          val forgetUsage = handlerToCancelTokens.update(_.remove(handler, cancelToken))
 
-          guarantee(registerHandler >> use(handler))(forgetUsage >> releaseResource)
+          guarantee(ContextCoercion(registerHandler) >> use(handler))(ContextCoercion(forgetUsage) >> releaseResource)
         }
       } yield a
     }
 
-    override def getCancelToken(handler: ResourceHandler): F[Option[CancelToken[F]]] =
-      delay { usageCancellationMap.get(handler) }
+    private def sequenceCancelToken(tokens: Iterable[CancelToken[F]]): CancelToken[F] = {
+      tokens.toList.sequence.as(())
+    }
 
-    override val trackedHandlers: F[Set[ResourceHandler]] =
-      delay { usageCancellationMap.keySet.toSet }
+    override def getCancelToken(handler: ResourceHandler): G[Option[CancelToken[F]]] =
+      handlerToCancelTokens.get.map(dict =>
+        dict.sets.get(handler).map(sequenceCancelToken)
+      )
 
-    override lazy val releaseAll: CancelToken[F] =
-      defer { usageCancellationMap.values.toList.sequence.as(()) }
+    override val trackedHandlers: G[Set[ResourceHandler]] =
+      handlerToCancelTokens.get.map(_.keySet.toSet)
+
+    override lazy val getReleaseAllAction: G[CancelToken[F]] = {
+      for {
+        mapping <- handlerToCancelTokens.get
+      } yield {
+        sequenceCancelToken(mapping.values)
+      }
+    }
   }
 
-  class SingleResourceScope[F[_]: Concurrent, ResourceHandler] private[ResourceScope]() extends ResourceScope[OptionT[F, *], ResourceHandler] {
+  class SingleResourceScope[
+    F[_] : Concurrent,
+    G[_],
+    ResourceHandler
+  ] private[ResourceScope](implicit override val DataAccessContext: Sync[G], contextCoercion: ContextCoercion[G, F])
+    extends ResourceScope[OptionT[F, *], G, ResourceHandler] {
+
     type OptionF[a] = OptionT[F, a]
 
-    override val monadF: Concurrent[OptionF] = implicitly
-    val concF: Concurrent[F] = implicitly
+    val F: Concurrent[F] = implicitly
 
-    private val promiseSlot: Ref[F, Option[TryableDeferred[F, (ResourceHandler, CancelToken[OptionF])]]] =
+    override val ResourceUsageContext: Concurrent[OptionF] = implicitly
+
+    /**
+     * トップレベルのRefがリソースの「割り当て操作」に対応し、内側のRefが実際のリソースを持つ。
+     *
+     * 具体的には、新しくリソースを作成したいとき、
+     *   - まずトップレベルのRefがNoneであることを確認してからSome(newRef)を入れ
+     *     (ここでNoneではなかった場合リソース確保を失敗させる)
+     *   - それが成功したらリソース確保を実行し、
+     *   - newRefの中に確保したリソースを入れる
+     *
+     * という手順を踏む。
+     */
+    private val resourceSlot: Ref[G, Option[Ref[G, Option[(ResourceHandler, CancelToken[OptionF])]]]] =
       Ref.unsafe(None)
 
+    import ContextCoercion._
     import cats.implicits._
 
     override def useTracked[R <: ResourceHandler, A](resource: Resource[OptionF, R])(use: R => OptionF[A]): OptionF[A] = {
       for {
         /**
-         * Deferredプロミスを作成し、それを `promiseSlot` に格納する試行をする。
-         * 試行が成功して初めてリソースの確保を行ってから、確保したリソースでプロミスを埋める。
+         * Refを作成し、それを `resourceSlot` に格納する試行をする。
+         * 試行が成功して初めてリソースの確保を行ってから、確保したリソースでRefを埋める。
          */
-        newPromise <- OptionT.liftF(Deferred.tryableUncancelable[F, (ResourceHandler, CancelToken[OptionF])])
-
-        // `promiseSlot` が空で`newPromise` の格納が成功した場合のみSome(true)が結果となる
-        promiseAllocation <- OptionT.liftF(
-          promiseSlot.tryModify {
-            case None => (Some(newPromise), true)
-            case allocated@Some(_) => (allocated, false)
-          }
+        newRef <- OptionT.liftF(
+          Ref.of[G, Option[(ResourceHandler, CancelToken[OptionF])]](None).coerceTo[F]
         )
-        _ <- OptionTExtra.failIf[F](promiseAllocation.contains(false))
 
-        forgetUsage = OptionT.liftF(promiseSlot.set(None))
+        // `resourceSlot` が空で`newPromise` の格納が成功した場合のみSome(true)が結果となる
+        promiseAllocation <- OptionT.liftF(
+          resourceSlot.tryModify {
+            case None => (Some(newRef), true)
+            case allocated@Some(_) => (allocated, false)
+          }.coerceTo[F]
+        )
+
+        _ <- OptionTExtra.failIf[F](!promiseAllocation.contains(true))
+
+        forgetUsage = OptionT.liftF(resourceSlot.set(None).coerceTo[F])
 
         // リソースの確保自体に失敗した場合は
-        // `promiseSlot` を別のリソースの確保のために開ける。
-        allocated <- resource.allocated(monadF).orElse(forgetUsage *> OptionT.none)
+        // `resourceSlot` を別のリソースの確保のために開ける。
+        allocated <- resource.allocated(ResourceUsageContext).orElse(forgetUsage *> OptionT.none)
         (handler, releaseResource) = allocated
 
         // use中に解放命令が入った時、useをキャンセルしforgetUsage >> releaseResourceを行うように
         a <- ConcurrentExtra.withSelfCancellation[OptionF, A] { cancelToken =>
-          val registerHandler = OptionT.liftF(newPromise.complete((handler, cancelToken)))
+          val registerHandler = OptionT.liftF(newRef.set(Some(handler, cancelToken)).coerceTo[F])
 
-          monadF.guarantee(registerHandler >> use(handler))(forgetUsage >> releaseResource)
+          ResourceUsageContext.guarantee(registerHandler >> use(handler))(forgetUsage >> releaseResource)
         }
       } yield a
     }
 
-    def getCancelTokenUnlifted(handler: ResourceHandler): F[Option[CancelToken[OptionF]]] =
-    // 与えられたハンドラと同一のハンドラが管理下にある場合のみ解放するようなFを計算する
-      {
-        for {
-          internalPromise <- OptionT(promiseSlot.get)
+    override def getCancelToken(handler: ResourceHandler): G[Option[CancelToken[OptionF]]] = {
+      // 与えられたハンドラと同一のハンドラが管理下にある場合のみ解放するようなFを計算する
 
-          handlerTokenPair <- OptionT(internalPromise.tryGet)
-          (acquiredHandler, release) = handlerTokenPair
+      val program: OptionT[G, CancelToken[OptionF]] = for {
+        internalRef <- OptionT(resourceSlot.get)
 
-          token <- OptionT.pure[F](release).filter(_ => handler == acquiredHandler)
-        } yield token
-      }.value
+        handlerTokenPair <- OptionT(internalRef.get)
+        (acquiredHandler, release) = handlerTokenPair
 
-    def isTrackedUnlifted(handler: ResourceHandler): F[Boolean] = getCancelTokenUnlifted(handler).map(_.nonEmpty)
+        token <- OptionT.pure[G](release).filter(_ => handler == acquiredHandler)
+      } yield token
 
-    def releaseSome(handler: ResourceHandler): CancelToken[F] = release(handler).value.as(())
+      program.value
+    }
 
-    val trackedHandlersUnlifted: F[Set[ResourceHandler]] = for {
-      promiseOption <- promiseSlot.get
+    override val trackedHandlers: G[Set[ResourceHandler]] = for {
+      promiseOption <- resourceSlot.get
       tracked <- promiseOption match {
-        case Some(promise) => promise.get.map(p => Set(p._1))
-        case None => Monad[F].pure(Set[ResourceHandler]())
+        case Some(ref) => ref.get.map {
+          case Some((handler, _)) => Set(handler) // 確保済み
+          case None => Set.empty[ResourceHandler] // 確保が確定したが確保中
+        }
+        case None => Monad[G].pure(Set[ResourceHandler]()) // 確保予定のリソースが無い
       }
     } yield tracked
 
     def useTrackedForSome[R <: ResourceHandler, A](resource: Resource[F, R])(f: R => F[A]): F[Option[A]] =
       useTracked(resource.mapK(OptionT.liftK[F]))(f.andThen(OptionT.liftF(_))).value
 
-    override val trackedHandlers: OptionT[F, Set[ResourceHandler]] = OptionT.liftF(trackedHandlersUnlifted)
-
-    override lazy val releaseAll: CancelToken[OptionF] =
+    override lazy val getReleaseAllAction: G[CancelToken[OptionF]] = {
       // 解放するリソースがあれば解放し、なければ何もしないようなFを計算する
-      for {
-        internalPromise <- OptionT(promiseSlot.get)
 
-        handlerTokenPair <- OptionT.liftF(internalPromise.get)
-        (_, release) = handlerTokenPair
+      val getReleaseAction: OptionT[G, CancelToken[OptionF]] =
+        for {
+          internalRef <- OptionT(resourceSlot.get)
 
-        _ <- release
-      } yield ()
+          handlerTokenPair <- OptionT(internalRef.get)
+          (_, release) = handlerTokenPair
+        } yield release
 
-    override def getCancelToken(handler: ResourceHandler): OptionF[Option[CancelToken[OptionF]]] =
-      OptionT.liftF(getCancelTokenUnlifted(handler))
+      val doNothing: CancelToken[OptionF] = OptionT.pure[F](())
+
+      getReleaseAction.value.map(_.getOrElse(doNothing))
+    }
   }
 }

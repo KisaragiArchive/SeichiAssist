@@ -12,17 +12,17 @@ import java.util.Arrays;
  * <p>
  * Adapted from ExperienceUtils code originally in ScrollingMenuSign.
  * <p>
- * Credit to nisovin (http://forums.bukkit.org/threads/experienceutils-make-giving-taking-exp-a-bit-more-intuitive.54450/#post-1067480)
+ * Credit to nisovin (https://forums.bukkit.org/threads/experienceutils-make-giving-taking-exp-a-bit-more-intuitive.54450/#post-1067480)
  * for an implementation that avoids the problems of getTotalExperience(), which doesn't work properly after a player has enchanted something.
  * <p>
  * Credit to comphenix for further contributions:
- * See http://forums.bukkit.org/threads/experiencemanager-was-experienceutils-make-giving-taking-exp-a-bit-more-intuitive.54450/page-3#post-1273622
+ * See https://forums.bukkit.org/threads/experiencemanager-was-experienceutils-make-giving-taking-exp-a-bit-more-intuitive.54450/page-3#post-1273622
  */
 public class ExperienceManager implements IExperienceManager {
     // this is to stop the lookup table growing without control
-    private static int hardMaxLevel = 100000;
+    private static final int hardMaxLevel = 100000;
 
-    private static int[] xpTotalToReachLevel;
+    private static long[] xpTotalToReachLevel;
 
     static {
         // 25 is an arbitrary value for the initial table size - the actual
@@ -46,18 +46,15 @@ public class ExperienceManager implements IExperienceManager {
     }
 
     /**
-     * Initialize the XP lookup table. See http://minecraft.gamepedia.com/Experience
+     * Initialize the XP lookup table. See https://minecraft.gamepedia.com/Experience
      *
      * @param maxLevel The highest level handled by the lookup tables
      */
     private static void initLookupTables(int maxLevel) {
-        xpTotalToReachLevel = new int[maxLevel];
+        xpTotalToReachLevel = new long[maxLevel];
 
-        for (int i = 0; i < xpTotalToReachLevel.length; i++) {
-            xpTotalToReachLevel[i] =
-                    i >= 30 ? (int) (3.5 * i * i - 151.5 * i + 2220) :
-                            i >= 16 ? (int) (1.5 * i * i - 29.5 * i + 360) :
-                                    17 * i;
+        for (int i = 1; i < xpTotalToReachLevel.length; i++) {
+            xpTotalToReachLevel[i] = xpTotalToReachLevel[i-1] + calculateXpNeededToLevelUp(i-1);
         }
     }
 
@@ -69,17 +66,25 @@ public class ExperienceManager implements IExperienceManager {
      * @param exp
      * @return
      */
-    private static int calculateLevelForExp(int exp) {
+    private static int calculateLevelForExp(long exp) {
         int level = 0;
-        int curExp = 7; // level 1
-        int incr = 10;
+        // level 1
+        long curExp = 7;
 
         while (curExp <= exp) {
-            curExp += incr;
-            level++;
-            incr += (level % 2 == 0) ? 3 : 4;
+            curExp += calculateXpNeededToLevelUp(++level);
         }
         return level;
+    }
+
+    /**
+     * Calculate the amount of XP needed for level up.
+     *
+     * @param level The level to check for.
+     * @return The amount of XP needed for level up.
+     */
+    private static int calculateXpNeededToLevelUp(int level){
+        return level >= 31 ? 112 + (level - 30) * 9 : level >= 16 ? 37 + (level - 15) * 5 : 7 + level * 2;
     }
 
     /**
@@ -105,7 +110,7 @@ public class ExperienceManager implements IExperienceManager {
      * @param amt Amount of XP, may be negative
      */
     @Override
-    public void changeExp(int amt) {
+    public void changeExp(long amt) {
         changeExp((double) amt);
     }
 
@@ -127,7 +132,7 @@ public class ExperienceManager implements IExperienceManager {
      * @param amt Amount of XP, should not be negative
      */
     @Override
-    public void setExp(int amt) {
+    public void setExp(long amt) {
         setExp(0, amt);
     }
 
@@ -146,7 +151,8 @@ public class ExperienceManager implements IExperienceManager {
 
         Player player = getPlayer();
         int curLvl = player.getLevel();
-        int newLvl = getLevelForExp(xp);
+        // 切り捨て
+        int newLvl = (int) getLevelForExp(xp);
 
         // Increment level
         if (curLvl != newLvl) {
@@ -167,11 +173,11 @@ public class ExperienceManager implements IExperienceManager {
      * @return the player's total XP
      */
     @Override
-    public int getCurrentExp() {
+    public long getCurrentExp() {
         Player player = getPlayer();
 
         int lvl = player.getLevel();
-        int cur = getXpForLevel(lvl) + Math.round(getXpNeededToLevelUp(lvl) * player.getExp());
+        long cur = getXpForLevel(lvl) + Math.round(getXpNeededToLevelUp(lvl) * player.getExp());
         return cur;
     }
 
@@ -195,7 +201,7 @@ public class ExperienceManager implements IExperienceManager {
      * @return true if the player has enough XP, false otherwise
      */
     @Override
-    public boolean hasExp(int amt) {
+    public boolean hasExp(long amt) {
         return getCurrentExp() >= amt;
     }
 
@@ -218,7 +224,7 @@ public class ExperienceManager implements IExperienceManager {
      * @throws IllegalArgumentException if the given XP is less than 0
      */
     @Override
-    public int getLevelForExp(int exp) {
+    public long getLevelForExp(long exp) {
         if (exp <= 0) {
             return 0;
         }
@@ -240,9 +246,9 @@ public class ExperienceManager implements IExperienceManager {
      * @throws IllegalArgumentException if the level is less than 0
      */
     @Override
-    public int getXpNeededToLevelUp(int level) {
+    public long getXpNeededToLevelUp(int level) {
         Validate.isTrue(level >= 0, "Level may not be negative.");
-        return level > 30 ? 62 + (level - 30) * 7 : level >= 16 ? 17 + (level - 15) * 3 : 17;
+        return calculateXpNeededToLevelUp(level);
     }
 
     /**
@@ -253,7 +259,7 @@ public class ExperienceManager implements IExperienceManager {
      * @throws IllegalArgumentException if the level is less than 0 or greater than the current hard maximum
      */
     @Override
-    public int getXpForLevel(int level) {
+    public long getXpForLevel(int level) {
         Validate.isTrue(level >= 0 && level <= hardMaxLevel, "Invalid level " + level + "(must be in range 0.." + hardMaxLevel + ")");
         if (level >= xpTotalToReachLevel.length) {
             initLookupTables(level * 2);

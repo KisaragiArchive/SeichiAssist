@@ -1,14 +1,15 @@
 package com.github.unchama.seichiassist.task
 
-import java.sql.{SQLException, Statement}
-
+import cats.Monad
+import cats.effect.Sync
 import com.github.unchama.seichiassist.data.player.{NicknameStyle, PlayerData}
-import com.github.unchama.seichiassist.activeskill.effect.{ActiveSkillNormalEffect, ActiveSkillPremiumEffect}
-import com.github.unchama.seichiassist.util.BukkitSerialization
+import com.github.unchama.seichiassist.seichiskill.effect.{ActiveSkillEffect, UnlockableActiveSkillEffect}
 import com.github.unchama.seichiassist.{MineStackObjectList, SeichiAssist}
 import com.github.unchama.util.ActionStatus
 import org.bukkit.ChatColor._
+import org.bukkit.entity.Player
 
+import java.sql.{SQLException, Statement}
 import scala.util.Using
 
 object PlayerDataSaveTask {
@@ -19,7 +20,7 @@ object PlayerDataSaveTask {
    * @param playerdata 保存するプレーヤーデータ
    * @author unchama
    */
-  def savePlayerData(playerdata: PlayerData): Unit = {
+  def savePlayerData[F[_] : Sync](player: Player, playerdata: PlayerData): F[Unit] = {
     val databaseGateway = SeichiAssist.databaseGateway
     val serverId = SeichiAssist.seichiAssistConfig.getServerNum
 
@@ -90,48 +91,34 @@ object PlayerDataSaveTask {
 
     def updateActiveSkillEffectUnlockState(stmt: Statement): Unit = {
       val playerUuid = playerdata.uuid.toString
-      val activeSkillEffects = ActiveSkillNormalEffect.values
-      val obtainedEffects = playerdata.activeskilldata.obtainedSkillEffects
+      val effectsObtained = playerdata.skillEffectState.obtainedEffects
 
-      val removeCommand = ("delete from "
-        + "seichiassist.unlocked_active_skill_effect "
-        + "where player_uuid = '" + playerUuid + "'")
-      stmt.executeUpdate(removeCommand)
+      stmt.executeUpdate {
+        s"delete from seichiassist.unlocked_active_skill_effect where player_uuid = '$playerUuid'"
+      }
 
-      activeSkillEffects.foreach { activeSkillEffect =>
-        val effectName = activeSkillEffect.nameOnDatabase
-        val isEffectUnlocked = obtainedEffects.contains(activeSkillEffect)
+      if (effectsObtained.nonEmpty) {
+        stmt.executeUpdate {
+          val data = effectsObtained.map(e => s"('$playerUuid', '${e.entryName}')").mkString(",")
 
-        if (isEffectUnlocked) {
-          val updateCommand = ("insert into "
-            + "seichiassist.unlocked_active_skill_effect(player_uuid, effect_name) "
-            + "values ('" + playerUuid + "', '" + effectName + "')")
-
-          stmt.executeUpdate(updateCommand)
+          s"insert into seichiassist.unlocked_active_skill_effect(player_uuid, effect_name) values $data"
         }
       }
     }
 
-    def updateActiveSkillPremiumEffectUnlockState(stmt: Statement): Unit = {
+    def updateSeichiSkillUnlockState(stmt: Statement): Unit = {
       val playerUuid = playerdata.uuid.toString
-      val activeSkillPremiumEffects = ActiveSkillPremiumEffect.values
-      val obtainedEffects = playerdata.activeskilldata.obtainedSkillPremiumEffects
+      val skillsObtained = playerdata.skillState.get.unsafeRunSync().obtainedSkills
 
-      val removeCommand = ("delete from "
-        + "seichiassist.unlocked_active_skill_premium_effect where "
-        + "player_uuid = '" + playerUuid + "'")
-      stmt.executeUpdate(removeCommand)
+      stmt.executeUpdate {
+        s"delete from seichiassist.unlocked_seichi_skill where player_uuid = '$playerUuid'"
+      }
 
-      activeSkillPremiumEffects.foreach { activeSkillPremiumEffect =>
-        val effectName = activeSkillPremiumEffect.getsqlName
-        val isEffectUnlocked = obtainedEffects.contains(activeSkillPremiumEffect)
+      if (skillsObtained.nonEmpty) {
+        stmt.executeUpdate {
+          val data = skillsObtained.map(e => s"('$playerUuid', '${e.entryName}')").mkString(",")
 
-        if (isEffectUnlocked) {
-          val updateCommand = ("insert into "
-            + "seichiassist.unlocked_active_skill_premium_effect(player_uuid, effect_name) "
-            + "values ('" + playerUuid + "', '" + effectName + "')")
-
-          stmt.executeUpdate(updateCommand)
+          s"insert into seichiassist.unlocked_seichi_skill(player_uuid, skill_name) values $data"
         }
       }
     }
@@ -142,34 +129,25 @@ object PlayerDataSaveTask {
       //実績のフラグ(BitSet)保存用変換処理
       val flagString = playerdata.TitleFlags.toBitMask.map(_.toHexString).mkString(",")
 
+      val skillState = playerdata.skillState.get.unsafeRunSync()
+
       val command = {
         ("update seichiassist.playerdata set"
-          //名前更新処理
-          + " name = '" + playerdata.lowercaseName + "'"
+          + " name = '" + playerdata.name + "'"
 
-          //各種数値更新処理
-          + ",effectflag = " + playerdata.settings.fastDiggingEffectSuppression.serialized().unsafeRunSync()
           + ",minestackflag = " + playerdata.settings.autoMineStack
-          + ",messageflag = " + playerdata.settings.receiveFastDiggingEffectStats
-          + ",activemineflagnum = " + playerdata.activeskilldata.mineflagnum
-          + ",assaultflag = " + playerdata.activeskilldata.assaultflag
-          + ",activeskilltype = " + playerdata.activeskilldata.skilltype
-          + ",activeskillnum = " + playerdata.activeskilldata.skillnum
-          + ",assaultskilltype = " + playerdata.activeskilldata.assaulttype
-          + ",assaultskillnum = " + playerdata.activeskilldata.assaultnum
-          + ",arrowskill = " + playerdata.activeskilldata.arrowskill
-          + ",multiskill = " + playerdata.activeskilldata.multiskill
-          + ",breakskill = " + playerdata.activeskilldata.breakskill
-          + ",fluidcondenskill = " + playerdata.activeskilldata.fluidcondenskill
-          + ",watercondenskill = " + playerdata.activeskilldata.watercondenskill
-          + ",lavacondenskill = " + playerdata.activeskilldata.lavacondenskill
-          + ",effectnum = " + playerdata.activeskilldata.effectnum
-          + ",gachapoint = " + playerdata.gachapoint
-          + ",gachaflag = " + playerdata.settings.receiveGachaTicketEveryMinute
-          + ",level = " + playerdata.level
+
+          + ",serialized_usage_mode = " + skillState.usageMode.value
+          + ",selected_effect = " + {
+            playerdata.skillEffectState.selection match {
+              case effect: UnlockableActiveSkillEffect => s"'${effect.entryName}'"
+              case ActiveSkillEffect.NoEffect => "null"
+            }
+          }
+          + ",selected_active_skill = " + skillState.activeSkill.map(skill => s"'${skill.entryName}'").getOrElse("null")
+          + ",selected_assault_skill = " + skillState.assaultSkill.map(skill => s"'${skill.entryName}'").getOrElse("null")
+
           + ",rgnum = " + playerdata.regionCount
-          + ",totalbreaknum = " + playerdata.totalbreaknum
-          + ",inventory = '" + BukkitSerialization.toBase64(playerdata.pocketInventory) + "'"
           + ",playtick = " + playerdata.playTick
           + ",lastquit = cast( now() as datetime )"
           + ",killlogflag = " + playerdata.settings.shouldDisplayDeathMessages
@@ -178,10 +156,7 @@ object PlayerDataSaveTask {
           + ",multipleidbreakflag = " + playerdata.settings.multipleidbreakflag
 
           + ",pvpflag = " + playerdata.settings.pvpflag
-          + ",effectpoint = " + playerdata.activeskilldata.effectpoint
-          + ",premiumeffectpoint = " + playerdata.activeskilldata.premiumeffectpoint
-          + ",mana = " + playerdata.activeskilldata.mana.getMana
-          + ",expvisible = " + playerdata.settings.isExpBarVisible
+          + ",effectpoint = " + playerdata.effectPoint
           + ",totalexp = " + playerdata.totalexp
           + ",expmarge = " + playerdata.expmarge
           + ",everysound = " + playerdata.settings.getBroadcastMutingSettings.unsafeRunSync().shouldMuteSounds
@@ -195,20 +170,11 @@ object PlayerDataSaveTask {
           + ",achvPointMAX = " + playerdata.achievePoint.fromUnlockedAchievements
           + ",achvPointUSE = " + playerdata.achievePoint.used
           + ",achvChangenum = " + playerdata.achievePoint.conversionCount
-          + ",starlevel = " + playerdata.totalStarLevel
-          + ",starlevel_Break = " + playerdata.starLevels.fromBreakAmount
-          + ",starlevel_Time = " + playerdata.starLevels.fromConnectionTime
-          + ",starlevel_Event = " + playerdata.starLevels.fromEventAchievement
 
           + ",lastcheckdate = '" + playerdata.lastcheckdate + "'"
           + ",ChainJoin = " + playerdata.loginStatus.consecutiveLoginDays
           + ",TotalJoin = " + playerdata.loginStatus.totalLoginDay
           + ",LimitedLoginCount = " + playerdata.LimitedLoginCount
-
-          //建築
-          + ",build_lv = " + playerdata.buildCount.lv
-          + ",build_count = " + playerdata.buildCount.count //.toString()
-          + ",build_count_flg = " + playerdata.buildCount.migrationFlag
 
           //投票
           + ",canVotingFairyUse = " + playerdata.usingVotingFairy
@@ -219,21 +185,11 @@ object PlayerDataSaveTask {
           + ",toggleVotingFairy = " + playerdata.toggleVotingFairy
           + ",p_apple = " + playerdata.p_apple
 
-          //貢献度pt
-          + ",added_mana = " + playerdata.added_mana
-
           + ",GBstage = " + playerdata.giganticBerserk.stage
           + ",GBexp = " + playerdata.giganticBerserk.exp
           + ",GBlevel = " + playerdata.giganticBerserk.level
           + ",isGBStageUp = " + playerdata.giganticBerserk.canEvolve
           + ",TitleFlags = '" + flagString + "'"
-
-          //正月イベント
-          + ",hasNewYearSobaGive = " + playerdata.hasNewYearSobaGive
-          + ",newYearBagAmount = " + playerdata.newYearBagAmount
-
-          //バレンタインイベント
-          + ",hasChocoGave = " + playerdata.hasChocoGave
 
           + " where uuid = '" + playerUuid + "'")
       }
@@ -248,12 +204,12 @@ object PlayerDataSaveTask {
 
         //同ステートメントだとmysqlの処理がバッティングした時に止まってしまうので別ステートメントを作成する
         val localStatement = databaseGateway.con.createStatement()
+        updateActiveSkillEffectUnlockState(localStatement)
+        updateSeichiSkillUnlockState(localStatement)
         updatePlayerDataColumns(localStatement)
         updatePlayerMineStack(localStatement)
         updateGridTemplate(localStatement)
         updateSubHome()
-        updateActiveSkillEffectUnlockState(localStatement)
-        updateActiveSkillPremiumEffectUnlockState(localStatement)
         ActionStatus.Ok
       } catch {
         case exception: SQLException =>
@@ -263,14 +219,25 @@ object PlayerDataSaveTask {
       }
     }
 
-    (0 until 3).foreach { _ =>
-      val result = executeUpdate()
-      if (result == ActionStatus.Ok) {
-        println(s"$GREEN${playerdata.lowercaseName}のプレイヤーデータ保存完了")
-        return
+
+    val commitUpdate: F[ActionStatus] = Sync[F].delay(executeUpdate())
+
+    import cats.implicits._
+
+    Monad[F].tailRecM(3) { remaining =>
+      if (remaining == 0) {
+        Sync[F].delay {
+          println(s"$RED${playerdata.name}のプレイヤーデータ保存失敗")
+        }.as(Right(ActionStatus.Fail))
+      } else commitUpdate.flatMap { result =>
+        if (result == ActionStatus.Ok) {
+          Sync[F].delay {
+            println(s"$GREEN${player.getName}のプレイヤーデータ保存完了")
+          }.as(Right(ActionStatus.Ok))
+        } else {
+          Monad[F].pure(Left(remaining - 1))
+        }
       }
     }
-
-    println(s"$RED${playerdata.lowercaseName}のプレイヤーデータ保存失敗")
   }
 }

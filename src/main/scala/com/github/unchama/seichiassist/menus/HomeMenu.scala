@@ -2,14 +2,14 @@ package com.github.unchama.seichiassist.menus
 
 import cats.effect.IO
 import com.github.unchama.itemstackbuilder.IconItemStackBuilder
+import com.github.unchama.menuinventory.router.CanOpen
 import com.github.unchama.menuinventory.slot.button.Button
 import com.github.unchama.menuinventory.slot.button.action.LeftClickButtonEffect
 import com.github.unchama.menuinventory.{ChestSlotRef, Menu, MenuFrame, MenuSlotLayout}
 import com.github.unchama.seichiassist.{ManagedWorld, SeichiAssist}
 import com.github.unchama.targetedeffect._
-import com.github.unchama.targetedeffect.player.FocusedSoundEffect
 import com.github.unchama.targetedeffect.player.PlayerEffects._
-import com.github.unchama.targetedeffect.syntax._
+import com.github.unchama.targetedeffect.player.{CommandEffect, FocusedSoundEffect}
 import org.bukkit.ChatColor._
 import org.bukkit.entity.Player
 import org.bukkit.{Material, Sound}
@@ -22,8 +22,10 @@ import org.bukkit.{Material, Sound}
 object HomeMenu extends Menu {
 
   import com.github.unchama.menuinventory.syntax._
-  import com.github.unchama.seichiassist.concurrent.PluginExecutionContexts.{layoutPreparationContext, syncShift}
+  import com.github.unchama.seichiassist.concurrent.PluginExecutionContexts.onMainThread
   import eu.timepit.refined.auto._
+
+  class Environment(implicit val ioCanOpenConfirmationMenu: IO CanOpen ConfirmationMenu)
 
   /**
    * メニューのサイズとタイトルに関する情報
@@ -33,7 +35,7 @@ object HomeMenu extends Menu {
   /**
    * @return `player`からメニューの[[MenuSlotLayout]]を計算する[[IO]]
    */
-  override def computeMenuLayout(player: Player): IO[MenuSlotLayout] = {
+  override def computeMenuLayout(player: Player)(implicit environment: Environment): IO[MenuSlotLayout] = {
     import eu.timepit.refined._
     import eu.timepit.refined.auto._
     import eu.timepit.refined.numeric._
@@ -90,12 +92,12 @@ object HomeMenu extends Menu {
           ))
           .build(),
         LeftClickButtonEffect {
-          "home".asCommandEffect()
+          CommandEffect("home")
         }
       )
     }
 
-    val setHomeButtonButton: Button = {
+    def setHomeButtonButton(implicit environment: Environment): Button = {
       Button(
         new IconItemStackBuilder(Material.BED)
           .title(s"$YELLOW$UNDERLINE${BOLD}ホームポイントを設定")
@@ -107,7 +109,7 @@ object HomeMenu extends Menu {
           .build(),
         LeftClickButtonEffect {
           FocusedSoundEffect(Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1f, 1f)
-          ConfirmationMenu(None).open
+          environment.ioCanOpenConfirmationMenu.open(ConfirmationMenu(None))
         }
       )
     }
@@ -123,14 +125,14 @@ object HomeMenu extends Menu {
           ))
           .build(),
         LeftClickButtonEffect {
-          sequentialEffect(
+          SequentialEffect(
             FocusedSoundEffect(Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1f, 1f),
-            s"subhome warp $subHomeNumber".asCommandEffect()
+            CommandEffect(s"subhome warp $subHomeNumber")
           )
         }
       )
 
-    def setSubHomeButton(subHomeNumber: Int): Button =
+    def setSubHomeButton(subHomeNumber: Int)(implicit environment: Environment): Button =
       Button(
         new IconItemStackBuilder(Material.BED)
           .title(s"$YELLOW$UNDERLINE${BOLD}サブホームポイント${subHomeNumber}を設定")
@@ -143,9 +145,9 @@ object HomeMenu extends Menu {
           ))
           .build(),
         LeftClickButtonEffect {
-          sequentialEffect(
+          SequentialEffect(
             FocusedSoundEffect(Sound.BLOCK_FENCE_GATE_OPEN, 1f, 0.1f),
-            ConfirmationMenu(Some(subHomeNumber)).open
+            environment.ioCanOpenConfirmationMenu.open(ConfirmationMenu(Some(subHomeNumber)))
           )
         }
       )
@@ -153,7 +155,6 @@ object HomeMenu extends Menu {
 
   private case class ButtonComputations(player: Player) {
 
-    import com.github.unchama.seichiassist.concurrent.PluginExecutionContexts.syncShift
     import player._
 
     def setSubHomeNameButton(subHomeNumber: Int): IO[Button] = IO {
@@ -180,9 +181,9 @@ object HomeMenu extends Menu {
           .lore(lore)
           .build(),
         LeftClickButtonEffect {
-          sequentialEffect(
+          SequentialEffect(
             FocusedSoundEffect(Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1f, 1f),
-            s"subhome name $subHomeNumber".asCommandEffect(),
+            CommandEffect(s"subhome name $subHomeNumber"),
             closeInventoryEffect
           )
         }
@@ -190,7 +191,9 @@ object HomeMenu extends Menu {
     }
   }
 
-  private case class ConfirmationMenu(changeSubHomeNumber: Option[Int], subHomeName: String = "") extends Menu {
+  case class ConfirmationMenu(changeSubHomeNumber: Option[Int], subHomeName: String = "") extends Menu {
+    override type Environment = ConfirmationMenu.Environment
+
     /**
      * メニューのサイズとタイトルに関する情報
      */
@@ -199,7 +202,7 @@ object HomeMenu extends Menu {
     /**
      * @return `player`からメニューの[[MenuSlotLayout]]を計算する[[IO]]
      */
-    override def computeMenuLayout(player: Player): IO[MenuSlotLayout] = {
+    override def computeMenuLayout(player: Player)(implicit environment: Environment): IO[MenuSlotLayout] = {
       val baseSlotMap = Map(
         ChestSlotRef(1, 2) -> changeButton,
         ChestSlotRef(1, 6) -> cancelButton
@@ -217,25 +220,25 @@ object HomeMenu extends Menu {
           .title(s"${GREEN}変更する")
           .build(),
         LeftClickButtonEffect {
-          sequentialEffect(
+          SequentialEffect(
             FocusedSoundEffect(Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1f, 1f),
             changeSubHomeNumber match {
-              case None => "sethome".asCommandEffect()
-              case Some(homeNumber) => s"subhome set $homeNumber".asCommandEffect()
+              case None => CommandEffect("sethome")
+              case Some(homeNumber) => CommandEffect(s"subhome set $homeNumber")
             },
             closeInventoryEffect
           )
         }
       )
 
-    val cancelButton: Button =
+    def cancelButton(implicit environment: Environment): Button =
       Button(
         new IconItemStackBuilder(Material.WOOL, durability = 14)
           .title(s"${RED}変更しない")
           .build(),
         LeftClickButtonEffect {
           FocusedSoundEffect(Sound.BLOCK_STONE_BUTTON_CLICK_ON, 1f, 1f)
-          HomeMenu.open
+          environment.ioCanOpenHomeMenu.open(HomeMenu)
         }
       )
 
@@ -249,6 +252,12 @@ object HomeMenu extends Menu {
           ))
           .build()
       )
+  }
+
+  object ConfirmationMenu {
+
+    class Environment(implicit val ioCanOpenHomeMenu: IO CanOpen HomeMenu.type)
+
   }
 
 }

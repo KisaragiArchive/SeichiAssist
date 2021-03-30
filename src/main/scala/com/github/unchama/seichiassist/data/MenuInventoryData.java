@@ -1,14 +1,10 @@
 package com.github.unchama.seichiassist.data;
 
-import com.github.unchama.seichiassist.LevelThresholds;
 import com.github.unchama.seichiassist.SeichiAssist;
 import com.github.unchama.seichiassist.achievement.Nicknames;
 import com.github.unchama.seichiassist.data.player.AchievementPoint;
 import com.github.unchama.seichiassist.data.player.PlayerData;
 import com.github.unchama.seichiassist.data.player.PlayerNickname;
-import com.github.unchama.seichiassist.database.DatabaseGateway;
-import com.github.unchama.seichiassist.activeskill.effect.ActiveSkillNormalEffect;
-import com.github.unchama.seichiassist.activeskill.effect.ActiveSkillPremiumEffect;
 import com.github.unchama.seichiassist.task.VotingFairyTask;
 import com.github.unchama.seichiassist.util.AsyncInventorySetter;
 import com.github.unchama.seichiassist.util.ItemMetaFactory;
@@ -28,19 +24,12 @@ import scala.Option;
 import scala.collection.mutable.HashMap;
 import scala.collection.mutable.Map;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.function.Consumer;
 
 public final class MenuInventoryData {
     private MenuInventoryData() {
     }
-
-    private static final HashMap<UUID, PlayerData> playermap = SeichiAssist.playermap();
-    private static final DatabaseGateway databaseGateway = SeichiAssist.databaseGateway();
 
     // 実際には60人も入ることは無いのでは？
     private static final Map<UUID, Boolean> finishedHeadPageBuild = new HashMap<>(60, 0.75);
@@ -91,7 +80,7 @@ public final class MenuInventoryData {
      */
     private static final Function0<Boolean> FALSE = () -> false;
 
-    private static final Consumer<ItemMeta> DIG100 = (meta) -> meta.addEnchant(Enchantment.DIG_SPEED, 100, false);
+    private static final Consumer<ItemMeta> DIG100 = meta -> meta.addEnchant(Enchantment.DIG_SPEED, 100, false);
 
 
     private static final ItemStack toMoveNicknameMenu = build(
@@ -107,94 +96,8 @@ public final class MenuInventoryData {
                 ChatColor.RESET + "" + ChatColor.GRAY + "投票ページで投票した後",
                 ChatColor.RESET + "" + ChatColor.GRAY + "このボタンをクリックします",
                 ChatColor.RESET + "" + ChatColor.AQUA + "特典受取済投票回数：" + playerdata.p_givenvote(),
-                ChatColor.RESET + "" + ChatColor.AQUA + "所有投票pt：" + playerdata.activeskilldata().effectpoint
+                ChatColor.RESET + "" + ChatColor.AQUA + "所有投票pt：" + playerdata.effectPoint()
         );
-    }
-
-    /**
-     * 整地量
-     * @param page ページ
-     * @return メニュー
-     */
-    public static Inventory getRankingBySeichiAmount(final int page) {
-        final int pageLimit = 14;
-        final int lowerBound = 100;
-        final Inventory inventory = getEmptyInventory(6, ChatColor.DARK_PURPLE + "" + ChatColor.BOLD + "整地神ランキング");
-        final ItemStack itemstack = new ItemStack(Material.SKULL_ITEM, 1, PLAYER_SKULL);
-        int invIndex = 0;
-        for (int rank = 10 * page; rank < 10 + 10 * page; rank++) {
-            if (rank >= SeichiAssist.ranklist().size()) {
-                break;
-            }
-
-            final RankData rankdata = SeichiAssist.ranklist().apply(rank);
-            if (rankdata.totalbreaknum < (Long) LevelThresholds.levelExpThresholds().apply(lowerBound - 1)) { //レベル100相当の総整地量判定に変更
-                break;
-            }
-
-            final List<String> lore = Arrays.asList(
-                    ChatColor.RESET + "" + ChatColor.GREEN + "整地レベル:" + rankdata.level,
-                    ChatColor.RESET + "" + ChatColor.GREEN + "総整地量:" + rankdata.totalbreaknum
-            );
-
-            final SkullMeta skullmeta = buildSkullMeta(
-                    ChatColor.YELLOW + "" + ChatColor.BOLD + "" + (rank + 1) + "位:" + "" + ChatColor.WHITE + rankdata.name,
-                    lore,
-                    rankdata.name
-            );
-            itemstack.setItemMeta(skullmeta);
-            AsyncInventorySetter.setItemAsync(inventory, invIndex, itemstack.clone());
-            invIndex++;
-        }
-
-        if (page != pageLimit) {
-            // 整地神ランキング次ページ目を開く
-            final SkullMeta skullMeta = buildSkullMeta(
-                    ChatColor.YELLOW + "" + ChatColor.UNDERLINE + "" + ChatColor.BOLD + "整地神ランキング" + (page + 2) + "ページ目へ",
-                    Collections.singletonList(ChatColor.RESET + "" + ChatColor.DARK_RED + "" + ChatColor.UNDERLINE + "クリックで移動"), "MHF_ArrowDown"
-            );
-            itemstack.setItemMeta(skullMeta);
-            AsyncInventorySetter.setItemAsync(inventory, 52, itemstack.clone());
-        }
-
-        // 1ページ目を開く
-        {
-            final String name;
-            final List<String> lore;
-            final String ign;
-            if (page == 0) {
-                name = ChatColor.YELLOW + "" + ChatColor.UNDERLINE + "" + ChatColor.BOLD + "ホームへ";
-                lore = Collections.singletonList(ChatColor.RESET + "" + ChatColor.DARK_RED + "" + ChatColor.UNDERLINE + "クリックで移動");
-                ign = "MHF_ArrowLeft";
-            } else {
-                // 整地神ランキング前ページ目を開く
-                name = ChatColor.YELLOW + "" + ChatColor.UNDERLINE + "" + ChatColor.BOLD + "整地神ランキング" + page + "ページ目へ";
-                lore = Collections.singletonList(ChatColor.RESET + "" + ChatColor.DARK_RED + "" + ChatColor.UNDERLINE + "クリックで移動");
-                ign = "MHF_ArrowUp";
-            }
-            final SkullMeta skullmeta = buildSkullMeta(name, lore, ign);
-            itemstack.setItemMeta(skullmeta);
-            AsyncInventorySetter.setItemAsync(inventory, 45, itemstack.clone());
-        }
-
-
-        // 総整地量の表記
-        {
-            final List<String> lore = Arrays.asList(
-                    ChatColor.RESET + "" + ChatColor.AQUA + "全プレイヤー総整地量:",
-                    ChatColor.RESET + "" + ChatColor.AQUA + SeichiAssist.allplayerbreakblockint()
-            );
-
-            final SkullMeta skullmeta = buildSkullMeta(
-                    ChatColor.YELLOW + "" + ChatColor.UNDERLINE + "" + ChatColor.BOLD + "整地鯖統計データ",
-                    lore,
-                    "unchama"
-            );
-            itemstack.setItemMeta(skullmeta);
-            AsyncInventorySetter.setItemAsync(inventory, 53, itemstack.clone());
-        }
-
-        return inventory;
     }
 
     /**
@@ -322,234 +225,16 @@ public final class MenuInventoryData {
     }
 
     /**
-     * プレミアムエフェクトポイント
-     * @param page ページ
-     * @return メニュー
-     */
-    public static Inventory getRankingByPremiumEffectPoint(final int page) {
-        final int pageLimit = 2;
-        final int lowerBound = 1;
-        final Inventory inventory = getEmptyInventory(6, ChatColor.DARK_PURPLE + "" + ChatColor.BOLD + "寄付神ランキング");
-        final ItemStack itemstack = new ItemStack(Material.SKULL_ITEM, 1, PLAYER_SKULL);
-        for (int donationRank = 50 * page, invIndex = 0; donationRank < 50 + 50 * page; donationRank++, invIndex++) {
-            if (donationRank >= SeichiAssist.ranklist_premiumeffectpoint().size()) {
-                break;
-            }
-            final RankData rankdata = SeichiAssist.ranklist_premiumeffectpoint().apply(donationRank);
-            if (rankdata.premiumeffectpoint < lowerBound) { //寄付金額0
-                break;
-            }
-            final SkullMeta skullmeta = buildSkullMeta(
-        ChatColor.YELLOW + "" + ChatColor.BOLD + "" + (donationRank + 1) + "位:" + "" + ChatColor.WHITE + rankdata.name,
-                Collections.singletonList(ChatColor.RESET + "" + ChatColor.GREEN + "総寄付金額:" + rankdata.premiumeffectpoint * 100),
-                rankdata.name
-            );
-            itemstack.setItemMeta(skullmeta);
-            final int finalInventoryIndex;
-            if (invIndex == 45) {
-                finalInventoryIndex = 47;
-            } else {
-                finalInventoryIndex = invIndex;
-            }
-            AsyncInventorySetter.setItemAsync(inventory, finalInventoryIndex, itemstack.clone());
-        }
-
-        if (page != pageLimit) {
-            // 整地神ランキング次ページ目を開く
-            final SkullMeta skullmeta = buildSkullMeta(
-                ChatColor.YELLOW + "" + ChatColor.UNDERLINE + "" + ChatColor.BOLD + "寄付神ランキング" + (page + 2) + "ページ目へ",
-                Collections.singletonList(ChatColor.RESET + "" + ChatColor.DARK_RED + "" + ChatColor.UNDERLINE + "クリックで移動"),
-                "MHF_ArrowDown"
-            );
-            itemstack.setItemMeta(skullmeta);
-            AsyncInventorySetter.setItemAsync(inventory, 52, itemstack.clone());
-        }
-
-        // 1ページ目を開く
-        {
-            final SkullMeta skullmeta;
-            if (page == 0) {
-                skullmeta = buildSkullMeta(
-                        ChatColor.YELLOW + "" + ChatColor.UNDERLINE + "" + ChatColor.BOLD + "ホームへ",
-                        Collections.singletonList(ChatColor.RESET + "" + ChatColor.DARK_RED + "" + ChatColor.UNDERLINE + "クリックで移動"),
-                        "MHF_ArrowLeft"
-                );
-            } else {
-                // 寄付神ランキング前ページ目を開く;
-                skullmeta = buildSkullMeta(
-                        ChatColor.YELLOW + "" + ChatColor.UNDERLINE + "" + ChatColor.BOLD + "寄付神ランキング" + page + "ページ目へ",
-                        Collections.singletonList(ChatColor.RESET + "" + ChatColor.DARK_RED + "" + ChatColor.UNDERLINE + "クリックで移動"),
-                        "MHF_ArrowUp"
-                );
-            }
-            itemstack.setItemMeta(skullmeta);
-            AsyncInventorySetter.setItemAsync(inventory, 45, itemstack.clone());
-        }
-
-
-        return inventory;
-    }
-
-    /**
-     * エフェクト選択
-     * @param p プレイヤー
-     * @return メニュー
-     */
-    public static Inventory getActiveSkillEffectMenuData(final Player p) {
-        final UUID uuid = p.getUniqueId();
-        final PlayerData playerdata = SeichiAssist.playermap().apply(uuid);
-        //念のためエラー分岐
-        if (validate(p, playerdata, "整地スキルエフェクト選択")) return null;
-        final Inventory inventory = getEmptyInventory(6, ChatColor.DARK_PURPLE + "" + ChatColor.BOLD + "整地スキルエフェクト選択");
-
-        // 1ページ目を開く
-        {
-            final ItemStack itemstack = buildPlayerSkull(
-                    ChatColor.YELLOW + "" + ChatColor.UNDERLINE + "" + ChatColor.BOLD + "スキルメニューへ",
-                    ChatColor.RESET + "" + ChatColor.DARK_RED + "" + ChatColor.UNDERLINE + "クリックで移動",
-                    "MHF_ArrowLeft"
-            );
-            AsyncInventorySetter.setItemAsync(inventory, 45, itemstack.clone());
-        }
-        //1行目
-        {
-            final List<String> lore = Arrays.asList(
-                    ChatColor.RESET + "" + ChatColor.GREEN + "現在選択しているエフェクト：" + ActiveSkillNormalEffect.getNameByNum(playerdata.activeskilldata().effectnum),
-                    ChatColor.RESET + "" + ChatColor.YELLOW + "使えるエフェクトポイント：" + playerdata.activeskilldata().effectpoint,
-                    ChatColor.RESET + "" + ChatColor.DARK_GRAY + "※投票すると獲得出来ます",
-                    ChatColor.RESET + "" + ChatColor.LIGHT_PURPLE + "使えるプレミアムポイント：" + playerdata.activeskilldata().premiumeffectpoint,
-                    ChatColor.RESET + "" + ChatColor.DARK_GRAY + "※寄付をすると獲得できます"
-            );
-            final ItemStack itemstack = buildPlayerSkull(
-                    ChatColor.YELLOW + "" + ChatColor.UNDERLINE + "" + ChatColor.BOLD + playerdata.lowercaseName() + "のスキルエフェクトデータ",
-                    lore,
-                    // この操作は安全; メニューを開けているのにUUIDがないなんてことがないから
-                    Bukkit.getOfflinePlayer(playerdata.uuid()).getName(),
-                    DIG100
-            );
-            AsyncInventorySetter.setItemAsync(inventory, 0, itemstack.clone());
-        }
-
-        {
-            final ItemStack itemstack = build(
-                    Material.BOOK_AND_QUILL,
-                    ChatColor.BLUE + "" + ChatColor.UNDERLINE + "" + ChatColor.BOLD + "プレミアムエフェクト購入履歴",
-                    ChatColor.RESET + "" + ChatColor.DARK_RED + "" + ChatColor.UNDERLINE + "クリックで閲覧"
-            );
-            AsyncInventorySetter.setItemAsync(inventory, 2,  itemstack);
-        }
-
-        {
-            final ItemStack itemstack = build(
-                    Material.GLASS,
-                    ChatColor.YELLOW + "" + ChatColor.UNDERLINE + "" + ChatColor.BOLD + "エフェクトを使用しない",
-                    ChatColor.RESET + "" + ChatColor.DARK_RED + "" + ChatColor.UNDERLINE + "クリックでセット",
-                    DIG100
-            );
-            AsyncInventorySetter.setItemAsync(inventory, 1,  itemstack);
-        }
-
-        {
-            final ActiveSkillNormalEffect[] effects = ActiveSkillNormalEffect.arrayValues();
-            int i = 0;
-            for (final ActiveSkillNormalEffect elem :
-                    effects) {
-                final ItemStack itemstack;
-                //プレイヤーがそのスキルを取得している場合の処理
-                if (playerdata.activeskilldata().obtainedSkillEffects.contains(elem)) {
-                    itemstack = build(
-                            elem.material(),
-                            elem.nameOnUI(),
-                            Arrays.asList(
-                                    ChatColor.RESET + "" + ChatColor.GREEN + elem.explanation(),
-                                    ChatColor.RESET + "" + ChatColor.DARK_RED + "" + ChatColor.UNDERLINE + "クリックでセット"
-                            )
-                    );
-                }
-                //プレイヤーがそのスキルをまだ取得していない場合の処理
-                else {
-                    itemstack = build(
-                            Material.BEDROCK,
-                            null,
-                            Arrays.asList(
-                                    ChatColor.RESET + "" + ChatColor.GREEN + elem.explanation(),
-                                    ChatColor.RESET + "" + ChatColor.YELLOW + "必要エフェクトポイント：" + elem.usePoint(),
-                                    ChatColor.RESET + "" + ChatColor.AQUA + "" + ChatColor.UNDERLINE + "クリックで解除"
-                            )
-                    );
-                }
-                AsyncInventorySetter.setItemAsync(inventory, i + 9,  itemstack);
-                i++;
-            }
-        }
-        {
-            final ActiveSkillPremiumEffect[] effects = ActiveSkillPremiumEffect.arrayValues();
-            int i = 27;
-            for (final ActiveSkillPremiumEffect effect :
-                    effects) {
-                final ItemStack itemstack;
-                if (playerdata.activeskilldata().obtainedSkillPremiumEffects.contains(effect)) {
-                    itemstack = build(
-                            effect.material(),
-                            ChatColor.UNDERLINE + "" + ChatColor.BOLD + ChatColor.stripColor(effect.desc()),
-                            Arrays.asList(
-                                    ChatColor.RESET + "" + ChatColor.GREEN + effect.explain(),
-                                    ChatColor.RESET + "" + ChatColor.DARK_RED + "" + ChatColor.UNDERLINE + "クリックでセット"
-                            )
-                    );
-                } else {
-                    //プレイヤーがそのスキルをまだ取得していない場合の処理
-                    itemstack = build(
-                            Material.BEDROCK,
-                            effect.desc(),
-                            Arrays.asList(
-                                    ChatColor.RESET + "" + ChatColor.GREEN + effect.explain(),
-                                    ChatColor.RESET + "" + ChatColor.YELLOW + "必要プレミアムポイント：" + effect.usePoint(),
-                                    ChatColor.RESET + "" + ChatColor.AQUA + "" + ChatColor.UNDERLINE + "クリックで解除"
-                            )
-                    );
-                }
-
-                AsyncInventorySetter.setItemAsync(inventory, i,  itemstack);
-                i++;
-            }
-        }
-        return inventory;
-    }
-
-    /**
-     * プレミア購入履歴表示
-     * @param player プレイヤー
-     * @return メニュー
-     */
-    public static Inventory getBuyRecordMenuData(final Player player) {
-        final PlayerData playerdata = playermap.apply(player.getUniqueId());
-        final Inventory inventory = getEmptyInventory(4, ChatColor.BLUE + "" + ChatColor.BOLD + "プレミアムエフェクト購入履歴");
-
-        // 1ページ目を開く
-        final ItemStack itemstack = buildPlayerSkull(
-                null,
-                ChatColor.RESET + "" + ChatColor.DARK_RED + "" + ChatColor.UNDERLINE + "クリックで移動",
-                "MHF_ArrowLeft"
-        );
-        AsyncInventorySetter.setItemAsync(inventory, 27, itemstack.clone());
-
-        databaseGateway.donateDataManipulator.loadDonateData(playerdata, inventory);
-
-        return inventory;
-    }
-
-    /**
      * 二つ名組み合わせ
      * @param p プレイヤー
      * @return メニュー
      */
-    public static Inventory setFreeTitleMainData(final Player p) {
+    public static Inventory computeRefreshedCombineMenu(final Player p) {
         final UUID uuid = p.getUniqueId();
         final PlayerData playerdata = SeichiAssist.playermap().apply(uuid);
         //念のためエラー分岐
-        if (validate(p, playerdata, "二つ名組み合わせ")) return null;
-        final Inventory inventory = getEmptyInventory(4, ChatColor.DARK_PURPLE + "" + ChatColor.BOLD + "二つ名組合せシステム");
+        if (isError(p, playerdata, "二つ名組み合わせ")) return null;
+        final Inventory inventory = getEmptyInventory(4, MenuType.COMBINE.invName);
 
         //各ボタンの設定
         finishedHeadPageBuild.put(uuid, false);
@@ -597,7 +282,7 @@ public final class MenuInventoryData {
                     ChatColor.RESET + "" + ChatColor.RED + "実績ポイントに変換できます。",
                     ChatColor.RESET + "" + ChatColor.YELLOW + "" + ChatColor.BOLD + "投票pt 10pt → 実績pt 3pt",
                     ChatColor.RESET + "" + ChatColor.AQUA + "クリックで変換を一回行います。",
-                    ChatColor.RESET + "" + ChatColor.GREEN + "所有投票pt :" + playerdata.activeskilldata().effectpoint,
+                    ChatColor.RESET + "" + ChatColor.GREEN + "所有投票pt :" + playerdata.effectPoint(),
                     ChatColor.RESET + "" + ChatColor.GREEN + "所有実績pt :" + playerdata.achievePoint().left()
             );
 
@@ -659,18 +344,62 @@ public final class MenuInventoryData {
         return inventory;
     }
 
+    public enum MenuType {
+        HEAD("" + ChatColor.DARK_PURPLE + ChatColor.BOLD + "二つ名組合せ「前」"),
+        MIDDLE("" + ChatColor.DARK_PURPLE + ChatColor.BOLD + "二つ名組合せ「中」"),
+        TAIL("" + ChatColor.DARK_PURPLE + ChatColor.BOLD + "二つ名組合せ「後」"),
+        SHOP("" + ChatColor.DARK_PURPLE + ChatColor.BOLD + "実績ポイントショップ"),
+        COMBINE("" + ChatColor.DARK_PURPLE + ChatColor.BOLD + "二つ名組合せシステム");
+
+        public final String invName;
+        MenuType(String invName) {
+            this.invName = invName;
+        }
+    }
+
+    public static void setHeadingIndex(UUID uuid, MenuType k, int index) {
+        switch (k) {
+            case HEAD:
+                headPartIndex.put(uuid, index);
+                break;
+            case MIDDLE:
+                middlePartIndex.put(uuid, index);
+                break;
+            case TAIL:
+                tailPartIndex.put(uuid, index);
+                break;
+            case SHOP:
+                shopIndex.put(uuid, index);
+                break;
+        }
+    }
+
+    public static Option<Integer> getHeadingIndex(UUID uuid, MenuType k) {
+        switch (k) {
+            case HEAD:
+                return headPartIndex.get(uuid);
+            case MIDDLE:
+                return middlePartIndex.get(uuid);
+            case TAIL:
+                return tailPartIndex.get(uuid);
+            case SHOP:
+                return shopIndex.get(uuid);
+        }
+        throw new AssertionError("This statement shouldn't be reached!");
+    }
+
     /**
      * 二つ名 - 前パーツ
      * @param p プレイヤー
      * @return メニュー
      */
-    public static Inventory setFreeTitle1Data(final Player p) {
+    public static Inventory computeHeadPartCustomMenu(final Player p) {
         final UUID uuid = p.getUniqueId();
         final PlayerData playerdata = SeichiAssist.playermap().apply(uuid);
         //念のためエラー分岐
-        if (validate(p, playerdata, "二つ名/前パーツ")) return null;
+        if (isError(p, playerdata, "二つ名/前パーツ")) return null;
 
-        final Inventory inventory = getEmptyInventory(4, ChatColor.DARK_PURPLE + "" + ChatColor.BOLD + "二つ名組合せ「前」");
+        final Inventory inventory = getEmptyInventory(4, MenuType.HEAD.invName);
 
         if (finishedHeadPageBuild.getOrElse(uuid, () -> false)) {
             finishedHeadPageBuild.put(uuid, false);
@@ -704,7 +433,8 @@ public final class MenuInventoryData {
                         ChatColor.RESET + "" + ChatColor.DARK_RED + "" + ChatColor.UNDERLINE + "クリックで移動",
                         "MHF_ArrowRight"
                 );
-                AsyncInventorySetter.setItemAsync(inventory, 27,  itemstack);
+                // 統一性のために右下へ
+                AsyncInventorySetter.setItemAsync(inventory, 35,  itemstack);
                 finishedHeadPageBuild.put(uuid, true);
                 break;
             }
@@ -727,7 +457,7 @@ public final class MenuInventoryData {
         return inventory;
     }
 
-    private static boolean validate(final Player destination, final PlayerData pd, final String operation) {
+    private static boolean isError(final Player destination, final PlayerData pd, final String operation) {
         if (pd == null) {
             destination.sendMessage(ChatColor.RED + "playerdataがありません。管理者に報告してください");
             Bukkit.getServer().getConsoleSender().sendMessage(ChatColor.RED + "SeichiAssist[" + operation + "]でエラー発生");
@@ -741,13 +471,13 @@ public final class MenuInventoryData {
      * @param p プレイヤー
      * @return メニュー
      */
-    public static Inventory setFreeTitle2Data(final Player p) {
+    public static Inventory computeMiddlePartCustomMenu(final Player p) {
         final UUID uuid = p.getUniqueId();
         final PlayerData playerdata = SeichiAssist.playermap().apply(uuid);
         //念のためエラー分岐
-        if (validate(p, playerdata, "二つ名/中パーツ")) return null;
+        if (isError(p, playerdata, "二つ名/中パーツ")) return null;
 
-        final Inventory inventory = getEmptyInventory(4, ChatColor.DARK_PURPLE + "" + ChatColor.BOLD + "二つ名組合せ「中」");
+        final Inventory inventory = getEmptyInventory(4, MenuType.MIDDLE.invName);
 
 
         if (finishedMiddlePageBuild.getOrElse(uuid, FALSE)) {
@@ -811,12 +541,12 @@ public final class MenuInventoryData {
      * @param p プレイヤー
      * @return メニュー
      */
-    public static Inventory setFreeTitle3Data(final Player p) {
+    public static Inventory computeTailPartCustomMenu(final Player p) {
         final UUID uuid = p.getUniqueId();
         final PlayerData playerdata = SeichiAssist.playermap().apply(uuid);
         //念のためエラー分岐
-        if (validate(p, playerdata, "二つ名/後パーツ")) return null;
-        final Inventory inventory = getEmptyInventory(4, ChatColor.DARK_PURPLE + "" + ChatColor.BOLD + "二つ名組合せ「後」");
+        if (isError(p, playerdata, "二つ名/後パーツ")) return null;
+        final Inventory inventory = getEmptyInventory(4, MenuType.TAIL.invName);
 
         if (!finishedTailPageBuild.getOrElse(uuid, FALSE)) {
             tailPartIndex.put(uuid, 1000);
@@ -873,14 +603,14 @@ public final class MenuInventoryData {
      * @param p プレイヤー
      * @return メニュー
      */
-    public static Inventory setTitleShopData(final Player p) {
+    public static Inventory computePartsShopMenu(final Player p) {
         //プレイヤーを取得
         final UUID uuid = p.getUniqueId();
         //プレイヤーデータ
         final PlayerData playerdata = SeichiAssist.playermap().apply(uuid);
         //念のためエラー分岐
-        if (validate(p, playerdata, "実績ポイントショップ")) return null;
-        final Inventory inventory = getEmptyInventory(4, ChatColor.DARK_PURPLE + "" + ChatColor.BOLD + "実績ポイントショップ");
+        if (isError(p, playerdata, "実績ポイントショップ")) return null;
+        final Inventory inventory = getEmptyInventory(4, MenuType.SHOP.invName);
 
         //実績ポイントの最新情報反映ボタン
         {
@@ -998,7 +728,7 @@ public final class MenuInventoryData {
         //プレイヤーデータ
         final PlayerData playerdata = SeichiAssist.playermap().apply(uuid);
         //念のためエラー分岐
-        if (validate(p, playerdata, "投票妖精")) return null;
+        if (isError(p, playerdata, "投票妖精")) return null;
         final Inventory inventory = getEmptyInventory(4, ChatColor.DARK_PURPLE + "" + ChatColor.BOLD + "投票ptメニュー");
 
         //投票pt受け取り
@@ -1216,7 +946,7 @@ public final class MenuInventoryData {
         //プレイヤーデータ
         final PlayerData playerdata = SeichiAssist.playermap().apply(uuid);
         //念のためエラー分岐
-        if (validate(p, playerdata, "Gigantic進化前確認")) return null;
+        if (isError(p, playerdata, "Gigantic進化前確認")) return null;
         final Inventory inventory = getEmptyInventory(6, ChatColor.DARK_PURPLE + "" + ChatColor.BOLD + "スキルを進化させますか?");
         {
             // 色
@@ -1262,7 +992,7 @@ public final class MenuInventoryData {
         //プレイヤーデータ
         final PlayerData playerdata = SeichiAssist.playermap().apply(uuid);
         //念のためエラー分岐
-        if (validate(p, playerdata, "GiganticBerserk進化後画面")) return null;
+        if (isError(p, playerdata, "GiganticBerserk進化後画面")) return null;
         final Inventory inventory = getEmptyInventory(6, ChatColor.LIGHT_PURPLE + "" + ChatColor.BOLD + "スキルを進化させました");
         {
             final byte[] table = {12, 15, 4, 0, 3, 12};
@@ -1364,7 +1094,7 @@ public final class MenuInventoryData {
     }
     
     private static <T> Consumer<T> nullConsumer() {
-        return (nothing) -> {};
+        return nothing -> {};
     }
 
     private static void placeGiganticBerserkShape(final Inventory inv) {

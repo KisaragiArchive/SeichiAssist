@@ -1,20 +1,24 @@
 package com.github.unchama.seichiassist.listener
 
+import cats.effect.{IO, SyncIO}
+import com.github.unchama.generic.effect.unsafe.EffectEnvironment
+import com.github.unchama.minecraft.actions.OnMinecraftServerThread
+import com.github.unchama.seichiassist.MaterialSets.{BlockBreakableBySkill, BreakTool}
 import com.github.unchama.seichiassist._
-import com.github.unchama.seichiassist.activeskill.BlockSearching
-import com.github.unchama.seichiassist.activeskill.effect.ActiveSkillEffect
+import com.github.unchama.seichiassist.seichiskill.{BlockSearching, BreakArea}
+import com.github.unchama.seichiassist.subsystems.mana.ManaApi
+import com.github.unchama.seichiassist.subsystems.mana.domain.ManaAmount
 import com.github.unchama.seichiassist.task.GiganticBerserkTask
-import com.github.unchama.seichiassist.util.external.ExternalPlugins
 import com.github.unchama.seichiassist.util.{BreakUtil, Util}
 import org.bukkit._
-import org.bukkit.block.Block
 import org.bukkit.enchantments.Enchantment
 import org.bukkit.entity.{Player, Projectile}
 import org.bukkit.event.entity._
 import org.bukkit.event.{EventHandler, Listener}
-import org.bukkit.inventory.ItemStack
 
-class EntityListener extends Listener {
+class EntityListener(implicit effectEnvironment: EffectEnvironment,
+                     ioOnMainThread: OnMinecraftServerThread[IO],
+                     manaApi: ManaApi[IO, SyncIO, Player]) extends Listener {
   private val playermap = SeichiAssist.playermap
 
   @EventHandler def onPlayerActiveSkillEvent(event: ProjectileHitEvent): Unit = { //矢を取得する
@@ -22,7 +26,7 @@ class EntityListener extends Listener {
 
     if (!SeichiAssist.instance.arrowSkillProjectileScope.isTracked(projectile).unsafeRunSync()) return
 
-    SeichiAssist.instance.arrowSkillProjectileScope.release(projectile).unsafeRunSync()
+    SeichiAssist.instance.arrowSkillProjectileScope.getReleaseAction(projectile).unsafeRunSync()
 
     val player = projectile.getShooter match {
       case p: Player => p
@@ -34,16 +38,11 @@ class EntityListener extends Listener {
     if ((player.getGameMode ne GameMode.SURVIVAL) || player.isFlying) return
 
     //壊されるブロックを取得
-    val block = player.getWorld.getBlockAt(projectile.getLocation.add(projectile.getVelocity.normalize))
-
-    //他人の保護がかかっている場合は処理を終了
-    if (!ExternalPlugins.getWorldGuard.canBuild(player, block.getLocation)) return
-
-    //ブロックのタイプを取得
-    val material = block.getType
-
-    //ブロックタイプがmateriallistに登録されていなければ処理終了
-    if (!MaterialSets.materials.contains(material)) return
+    val block =
+      MaterialSets.refineBlock(
+        player.getWorld.getBlockAt(projectile.getLocation.add(projectile.getVelocity.normalize)),
+        MaterialSets.materials
+      ).getOrElse(return)
 
     //整地ワールドでは重力値によるキャンセル判定を行う(スキル判定より先に判定させること)
     if (BreakUtil.getGravity(player, block, isAssault = false) > 3) {
@@ -52,84 +51,77 @@ class EntityListener extends Listener {
     }
 
     //スキル発動条件がそろってなければ終了
-    if (!Util.isSkillEnable(player)) return
+    if (!Util.seichiSkillsAllowedIn(player.getWorld)) return
 
-    //プレイヤーインベントリを取得
-    val inventory = player.getInventory
-
-    //メインハンドとオフハンドを取得
-    val mainhanditem = inventory.getItemInMainHand
-
-    //メインハンドにツールがあるか
-    val mainhandtoolflag = MaterialSets.breakMaterials.contains(mainhanditem.getType)
+    //破壊不可能な場合は処理を終了
+    if (!BreakUtil.canBreakWithSkill(player, block)) return
 
     //実際に使用するツール
-    val tool = if (mainhandtoolflag) mainhanditem else return
+    val tool = MaterialSets.refineItemStack(
+      player.getInventory.getItemInMainHand,
+      MaterialSets.breakToolMaterials
+    ).getOrElse(return)
 
     //耐久値がマイナスかつ耐久無限ツールでない時処理を終了
-    if (tool.getDurability > tool.getType.getMaxDurability && !tool.getItemMeta.spigot.isUnbreakable) return
+    if (tool.getDurability > tool.getType.getMaxDurability && !tool.getItemMeta.isUnbreakable) return
 
-    //スキルで破壊されるブロックの時処理を終了
-    if (SeichiAssist.instance.managedBlockChunkScope.trackedHandlers.unsafeRunSync().exists(_.contains(block))) {
-      if (SeichiAssist.DEBUG) player.sendMessage("スキルで使用中のブロックです。")
-      return
-    }
-
-    runArrowSkillofHitBlock(player, block, tool)
+    runArrowSkillOfHitBlock(player, block, tool)
   }
 
-  private def runArrowSkillofHitBlock(player: Player, hitBlock: Block, tool: ItemStack): Unit = {
-    val uuid = player.getUniqueId
-    val playerData = playermap.apply(uuid)
+  private def runArrowSkillOfHitBlock(player: Player, hitBlock: BlockBreakableBySkill, tool: BreakTool): Unit = {
+    val playerData = playermap(player.getUniqueId)
 
-    //マナを取得
-    val mana = playerData.activeskilldata.mana
+    val skillState = playerData.skillState.get.unsafeRunSync()
+    val selectedSkill = skillState.activeSkill.getOrElse(return)
+    val activeSkillArea = BreakArea(selectedSkill, skillState.usageMode)
 
-    val area = playerData.activeskilldata.area.makeBreakArea(player).unsafeRunSync()(0)
+    val breakArea = activeSkillArea.makeBreakArea(player).unsafeRunSync().head
 
-    //エフェクト用に壊されるブロック全てのリストデータ
-    //一回の破壊の範囲
-    val breakLength = playerData.activeskilldata.area.breakLength
+    // 破壊範囲のブロック数
+    val breakAreaVolume = {
+      val breakLength = activeSkillArea.breakLength
+      breakLength.x * breakLength.y * breakLength.z
+    }
 
-    //１回の全て破壊したときのブロック数
-    val ifAllBreakNum = breakLength.x * breakLength.y * breakLength.z
+    val level =
+      SeichiAssist.instance
+        .breakCountSystem.api
+        .seichiAmountDataRepository(player).read
+        .unsafeRunSync()
+        .levelCorrespondingToExp.level
 
     val isMultiTypeBreakingSkillEnabled = {
-      val playerData = SeichiAssist.playermap(player.getUniqueId)
-
       import ManagedWorld._
-      playerData.level >= SeichiAssist.seichiAssistConfig.getMultipleIDBlockBreaklevel &&
+
+      level >= SeichiAssist.seichiAssistConfig.getMultipleIDBlockBreaklevel &&
         (player.getWorld.isSeichi || playerData.settings.multipleidbreakflag)
     }
 
     import com.github.unchama.seichiassist.data.syntax._
     val BlockSearching.Result(breakBlocks, _, lavaBlocks) =
       BlockSearching
-        .searchForBreakableBlocks(player, area.gridPoints(), hitBlock)
+        .searchForBlocksBreakableWithSkill(player, breakArea.gridPoints(), hitBlock)
         .unsafeRunSync()
-        .mapSolids(
-          if (isMultiTypeBreakingSkillEnabled)
-            identity
-          else
-            _.filter(BlockSearching.multiTypeBreakingFilterPredicate(hitBlock))
+        .filterSolids(targetBlock =>
+          isMultiTypeBreakingSkillEnabled || BlockSearching.multiTypeBreakingFilterPredicate(hitBlock)(targetBlock)
         )
 
     //重力値計算
     val gravity = BreakUtil.getGravity(player, hitBlock, isAssault = false)
 
     //減る経験値計算
-    //実際に破壊するブロック数  * 全てのブロックを破壊したときの消費経験値÷すべての破壊するブロック数 * 重力
-    val useMana =
-      breakBlocks.size.toDouble *
-        (gravity + 1) *
-        ActiveSkill.getActiveSkillUseExp(playerData.activeskilldata.skilltype, playerData.activeskilldata.skillnum) / ifAllBreakNum
+    //実際に破壊するブロック数 * 全てのブロックを破壊したときの消費経験値 ÷ すべての破壊するブロック数 * 重力
+    val manaConsumption = breakBlocks.size.toDouble * (gravity + 1) * selectedSkill.manaCost / breakAreaVolume
 
-    //減る耐久値の計算
+    //セットする耐久値の計算
     //１マス溶岩を破壊するのにはブロック１０個分の耐久が必要
-    val durability =
-      (tool.getDurability +
-        BreakUtil.calcDurability(tool.getEnchantmentLevel(Enchantment.DURABILITY), breakBlocks.size) +
-        BreakUtil.calcDurability(tool.getEnchantmentLevel(Enchantment.DURABILITY), 10 * lavaBlocks.size)).toShort
+    val nextDurability = {
+      val durabilityEnchantment = tool.getEnchantmentLevel(Enchantment.DURABILITY)
+
+      tool.getDurability +
+        BreakUtil.calcDurability(durabilityEnchantment, breakBlocks.size) +
+        BreakUtil.calcDurability(durabilityEnchantment, 10 * lavaBlocks.size)
+    }.toShort
 
     //重力値の判定
     if (gravity > 15) {
@@ -137,23 +129,17 @@ class EntityListener extends Listener {
       return
     }
 
-    //実際に経験値を減らせるか判定
-    if (!mana.has(useMana)) {
-      if (SeichiAssist.DEBUG) player.sendMessage(ChatColor.RED + "アクティブスキル発動に必要なマナが足りません")
+    // 実際に耐久値を減らせるか判定
+    if (tool.getType.getMaxDurability <= nextDurability && !tool.getItemMeta.isUnbreakable) {
       return
     }
 
-    //実際に耐久値を減らせるか判定
-    if (tool.getType.getMaxDurability <= durability && !tool.getItemMeta.spigot.isUnbreakable) {
-      if (SeichiAssist.DEBUG) player.sendMessage(ChatColor.RED + "アクティブスキル発動に必要なツールの耐久値が足りません")
+    // マナを減らす
+    if (manaApi.manaAmount(player).tryAcquire(ManaAmount(manaConsumption)).unsafeRunSync().isEmpty)
       return
-    }
-
-    //経験値を減らす
-    mana.decrease(useMana, player, playerData.level)
 
     //耐久値を減らす
-    if (!tool.getItemMeta.spigot.isUnbreakable) tool.setDurability(durability)
+    if (!tool.getItemMeta.isUnbreakable) tool.setDurability(nextDurability)
 
     //以降破壊する処理
     //溶岩を破壊する処理
@@ -162,15 +148,14 @@ class EntityListener extends Listener {
     //元ブロックの真ん中の位置
     val centerOfBlock = hitBlock.getLocation.add(0.5, 0.5, 0.5)
 
-    com.github.unchama.seichiassist.unsafe.runIOAsync(
+    effectEnvironment.runEffectAsync(
       "破壊エフェクトを再生する",
-      ActiveSkillEffect
-        .fromEffectNum(playerData.activeskilldata.effectnum, playerData.activeskilldata.skillnum)
-        .runBreakEffect(player, playerData.activeskilldata, tool, breakBlocks.toSet, area, centerOfBlock)
+      playerData.skillEffectState.selection
+        .runBreakEffect(player, selectedSkill, tool, breakBlocks.toSet, breakArea, centerOfBlock)
     )
   }
 
-  @EventHandler def onEntityExplodeEvent(event: EntityExplodeEvent) = {
+  @EventHandler def onEntityExplodeEvent(event: EntityExplodeEvent): Unit = {
     event.getEntity match {
       case e: Projectile =>
         if (SeichiAssist.instance.arrowSkillProjectileScope.isTracked(e).unsafeRunSync())
@@ -179,7 +164,7 @@ class EntityListener extends Listener {
     }
   }
 
-  @EventHandler def onEntityDamageByEntityEvent(event: EntityDamageByEntityEvent) = {
+  @EventHandler def onEntityDamageByEntityEvent(event: EntityDamageByEntityEvent): Unit = {
     event.getDamager match {
       case e: Projectile =>
         if (SeichiAssist.instance.arrowSkillProjectileScope.isTracked(e).unsafeRunSync())
@@ -188,7 +173,7 @@ class EntityListener extends Listener {
     }
   }
 
-  @EventHandler def onPotionSplashEvent(event: PotionSplashEvent) = {
+  @EventHandler def onPotionSplashEvent(event: PotionSplashEvent): Unit = {
     event.getPotion match {
       case e if e != null =>
         if (SeichiAssist.instance.arrowSkillProjectileScope.isTracked(e).unsafeRunSync())

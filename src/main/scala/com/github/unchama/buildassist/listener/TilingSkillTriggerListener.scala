@@ -1,8 +1,12 @@
 package com.github.unchama.buildassist.listener
 
+import cats.effect.{SyncEffect, SyncIO}
 import com.github.unchama.buildassist.{BuildAssist, Util}
+import com.github.unchama.seichiassist.subsystems.buildcount.application.actions.IncrementBuildExpWhenBuiltWithSkill
+import com.github.unchama.seichiassist.subsystems.buildcount.domain.explevel.BuildExpAmount
 import com.github.unchama.seichiassist.{MineStackObjectList, SeichiAssist}
 import org.bukkit.ChatColor.RED
+import org.bukkit.entity.Player
 import org.bukkit.event.block.Action
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.{EventHandler, Listener}
@@ -12,7 +16,11 @@ import org.bukkit.{Location, Material}
 import scala.util.chaining._
 import scala.util.control.Breaks
 
-object TilingSkillTriggerListener extends Listener {
+class TilingSkillTriggerListener[
+  F[_]
+  : IncrementBuildExpWhenBuiltWithSkill[*[_], Player]
+  : SyncEffect
+] extends Listener {
 
   // 範囲設置スキルの発動を担うハンドラメソッド
   @EventHandler
@@ -22,8 +30,8 @@ object TilingSkillTriggerListener extends Listener {
 
     val playerWorld = player.getWorld
 
-    val buildAssistPlayerData = BuildAssist.playermap.getOrElse(playerUuid, return)
-    val seichiAssistPlayerData = SeichiAssist.playermap.getOrElse(playerUuid, return)
+    val buildAssistPlayerData = BuildAssist.instance.temporaryData(playerUuid)
+    val seichiAssistPlayerData = SeichiAssist.playermap(playerUuid)
 
     val playerInventory = player.getInventory
     val offHandItem = playerInventory.getItemInOffHand
@@ -186,10 +194,11 @@ object TilingSkillTriggerListener extends Listener {
       }
     }
 
-    if (Util.inTrackedWorld(player)) {
-      //設置した数を足す
-      Util.addBuild1MinAmount(player, new java.math.BigDecimal(placementCount * BuildAssist.config.getBlockCountMag))
-    }
+    import cats.effect.implicits._
+    IncrementBuildExpWhenBuiltWithSkill[F, Player]
+      .of(player, BuildExpAmount(placementCount))
+      .runSync[SyncIO]
+      .unsafeRunSync()
   }
 
 }

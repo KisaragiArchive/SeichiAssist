@@ -19,8 +19,11 @@ class PlayerPickupItemListener extends Listener {
     if (player.getGameMode != GameMode.SURVIVAL) return
 
     val playerData = playerMap(player.getUniqueId).ifNull(return)
+    val playerLevel = SeichiAssist.instance
+      .breakCountSystem.api.seichiAmountDataRepository(player)
+      .read.unsafeRunSync().levelCorrespondingToExp.level
 
-    if (playerData.level < config.getMineStacklevel(1)) return
+    if (playerLevel < config.getMineStacklevel(1)) return
 
     if (!playerData.settings.autoMineStack) return
 
@@ -32,7 +35,7 @@ class PlayerPickupItemListener extends Listener {
       player.sendMessage(RED.toString + "pickDurability:" + itemstack.getDurability)
     }
 
-    if (BreakUtil.addItemToMineStack(player, itemstack)) {
+    if (BreakUtil.tryAddItemIntoMineStack(player, itemstack)) {
       event.setCancelled(true)
       player.playSound(player.getLocation, Sound.ENTITY_ITEM_PICKUP, 1f, 1f)
       item.remove()

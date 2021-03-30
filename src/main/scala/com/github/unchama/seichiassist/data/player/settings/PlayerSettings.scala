@@ -3,20 +3,14 @@ package com.github.unchama.seichiassist.data.player.settings
 import cats.data.Kleisli
 import cats.effect.IO
 import com.github.unchama.seichiassist.data.player.{NicknameStyle, PlayerNickname}
+import com.github.unchama.targetedeffect.commandsender.MessageEffect
 import org.bukkit.ChatColor._
 import org.bukkit.entity.Player
 
 class PlayerSettings {
 
   import com.github.unchama.targetedeffect._
-  import com.github.unchama.targetedeffect.syntax._
-
-  val fastDiggingEffectSuppression = new FastDiggingEffectSuppression()
   var autoMineStack = true
-  //内訳メッセージを出すフラグ
-  var receiveFastDiggingEffectStats = false
-  //ガチャ受け取り方法設定
-  var receiveGachaTicketEveryMinute = true
   //キルログ表示トグル
   var shouldDisplayDeathMessages = false
   //ワールドガード保護ログ表示トグル
@@ -28,8 +22,7 @@ class PlayerSettings {
   var multipleidbreakflag = false
   //PvPトグル
   var pvpflag = false
-  var nickname = PlayerNickname(NicknameStyle.Level, 0, 0, 0)
-  var isExpBarVisible = false
+  var nickname: PlayerNickname = PlayerNickname(NicknameStyle.Level)
   //ハーフブロック破壊抑制用
   private var allowBreakingHalfBlocks = false
 
@@ -56,13 +49,13 @@ class PlayerSettings {
       broadcastMutingSettings = nextSettings
     }
   )
-  val toggleHalfBreakFlag: TargetedEffect[Player] = deferredEffect(IO {
+  val toggleHalfBreakFlag: TargetedEffect[Player] = DeferredEffect(IO {
     allowBreakingHalfBlocks = !allowBreakingHalfBlocks
 
     val newStatus = if (allowBreakingHalfBlocks) s"${GREEN}破壊可能" else "${RED}破壊不可能"
     val responseMessage = s"現在ハーフブロックは$newStatus${RESET}です."
 
-    responseMessage.asMessageEffect()
+    MessageEffect(responseMessage)
   })
 
   /**

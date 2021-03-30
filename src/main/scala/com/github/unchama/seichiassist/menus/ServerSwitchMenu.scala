@@ -2,9 +2,11 @@ package com.github.unchama.seichiassist.menus
 
 import cats.effect.IO
 import com.github.unchama.itemstackbuilder.IconItemStackBuilder
+import com.github.unchama.menuinventory.router.CanOpen
 import com.github.unchama.menuinventory.slot.button.Button
 import com.github.unchama.menuinventory.slot.button.action.LeftClickButtonEffect
 import com.github.unchama.menuinventory.{ChestSlotRef, Menu, MenuFrame, MenuSlotLayout}
+import com.github.unchama.seichiassist.menus.stickmenu.FirstPage
 import com.github.unchama.targetedeffect._
 import com.github.unchama.targetedeffect.player.PlayerEffects._
 import org.bukkit.ChatColor._
@@ -40,16 +42,18 @@ object ServerSwitchMenu extends Menu {
 
     case object VALHALLA extends Server(s"$YELLOW${BOLD}ヴァルハラ", "s3", ChestSlotRef(0, 2), Material.DIAMOND_AXE)
 
-    case object ARCHITECTURE extends Server(s"$GREEN${BOLD}建築", "s8", ChestSlotRef(0, 7), Material.BRICK)
-
     case object PUBLIC extends Server(s"$GREEN${BOLD}公共施設", "s7", ChestSlotRef(0, 8), Material.DIAMOND)
+
+    case object SEICHI extends Server(s"$YELLOW${BOLD}整地専用", "s5", ChestSlotRef(0, 4), Material.IRON_PICKAXE)
 
     val values: IndexedSeq[Server] = findValues
 
   }
 
   import com.github.unchama.menuinventory.syntax._
-  import com.github.unchama.seichiassist.concurrent.PluginExecutionContexts.syncShift
+  import com.github.unchama.seichiassist.concurrent.PluginExecutionContexts.onMainThread
+
+  class Environment(implicit val ioCanOpenStickMenu: IO CanOpen FirstPage.type)
 
   /**
    * メニューのサイズとタイトルに関する情報
@@ -61,12 +65,18 @@ object ServerSwitchMenu extends Menu {
       val slotIndex = server.chestSlotRef
       val iconItemStack = new IconItemStackBuilder(server.material)
         .title(server.uiLabel + "サーバー")
+        .lore {
+          // 整地専用サーバーの場合は上級者向けのサーバーである旨を通知
+          if (server.identifier == "s5")
+            List("上級者向けのサーバー", "始めたての頃は他のサーバーがおすすめ").map { str => s"$RESET$BLUE$str" }
+          else Nil
+        }
         .enchanted()
         .build()
       val button = Button(
         iconItemStack,
         LeftClickButtonEffect {
-          computedEffect(_ => {
+          ComputedEffect(_ => {
             connectToServerEffect(server.identifier)
           })
         }
@@ -77,12 +87,14 @@ object ServerSwitchMenu extends Menu {
     MenuSlotLayout(layoutMap)
   }
 
-  val buttonLayout: MenuSlotLayout =
-    MenuSlotLayout(ChestSlotRef(1, 0) -> CommonButtons.openStickMenu)
-      .merge(serverButtonLayout)
-
   /**
    * @return `player`からメニューの[[MenuSlotLayout]]を計算する[[IO]]
    */
-  override def computeMenuLayout(player: Player): IO[MenuSlotLayout] = IO.pure(buttonLayout)
+  override def computeMenuLayout(player: Player)(implicit environment: Environment): IO[MenuSlotLayout] =
+    IO.pure {
+      import environment._
+
+      MenuSlotLayout(ChestSlotRef(1, 0) -> CommonButtons.openStickMenu)
+        .merge(serverButtonLayout)
+    }
 }

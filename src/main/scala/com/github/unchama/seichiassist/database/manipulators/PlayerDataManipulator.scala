@@ -1,31 +1,31 @@
 package com.github.unchama.seichiassist.database.manipulators
 
-import java.sql.SQLException
-import java.text.SimpleDateFormat
-import java.util.{Calendar, UUID}
-
 import cats.data.EitherT
 import cats.effect.IO
-import com.github.unchama.contextualexecutor.builder.TypeAliases.ResponseEffectOrResult
+import com.github.unchama.contextualexecutor.builder.ResponseEffectOrResult
 import com.github.unchama.seichiassist.SeichiAssist
 import com.github.unchama.seichiassist.data.RankData
 import com.github.unchama.seichiassist.data.player.PlayerData
 import com.github.unchama.seichiassist.database.{DatabaseConstants, DatabaseGateway}
 import com.github.unchama.seichiassist.task.{CoolDownTask, PlayerDataLoading}
-import com.github.unchama.seichiassist.util.{BukkitSerialization, Util}
+import com.github.unchama.seichiassist.util.BukkitSerialization
 import com.github.unchama.targetedeffect.TargetedEffect
+import com.github.unchama.targetedeffect.commandsender.MessageEffect
 import com.github.unchama.util.ActionStatus
 import org.bukkit.Bukkit
 import org.bukkit.ChatColor._
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import org.bukkit.inventory.Inventory
+import scalikejdbc.{DB, scalikejdbcSQLInterpolationImplicitDef}
 
+import java.sql.SQLException
+import java.text.SimpleDateFormat
+import java.util.{Calendar, UUID}
 import scala.collection.mutable
 
 class PlayerDataManipulator(private val gateway: DatabaseGateway) {
 
-  import com.github.unchama.targetedeffect.syntax._
   import com.github.unchama.util.syntax.ResultSetSyntax._
 
   private val plugin = SeichiAssist.instance
@@ -111,7 +111,7 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
       player.sendMessage(RED.toString + "しばらく待ってからやり直してください")
       return 0
     }
-    new CoolDownTask(player, true, false, false).runTaskLater(plugin, 1200)
+    new CoolDownTask(player, true, false).runTaskLater(plugin, 1200)
 
     supplier
   }
@@ -120,33 +120,14 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
    * 投票ポイントをインクリメントするメソッド。
    *
    * @param playerName プレーヤー名
-   * @return 処理の成否
    */
-  def incrementVotePoint(playerName: String): ActionStatus = {
-    val command = ("update " + tableReference
-      + " set p_vote = p_vote + 1" //1加算
-
-      + s" where name = '$playerName'")
-
-    gateway.executeUpdate(command)
+  def incrementVotePoint(playerName: String): Unit = {
+    DB.localTx { implicit session =>
+      sql"update playerdata set p_vote = p_vote + 1 where name = $playerName"
+        .update()
+        .apply()
+    }
   }
-
-  /**
-   * プレミアムエフェクトポイントを加算するメソッド。
-   *
-   * @param playerName プレーヤーネーム
-   * @param num        足す整数
-   * @return 処理の成否
-   */
-  def addPremiumEffectPoint(playerName: String, num: Int): ActionStatus = {
-    val command = ("update " + tableReference
-      + " set premiumeffectpoint = premiumeffectpoint + " + num //引数で来たポイント数分加算
-
-      + s" where name = '$playerName'")
-
-    gateway.executeUpdate(command)
-  }
-
 
   //指定されたプレイヤーにガチャ券を送信する
   def addPlayerBug(playerName: String, num: Int): ActionStatus = {
@@ -157,118 +138,46 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
     gateway.executeUpdate(command)
   }
 
-  def addChainVote(name: String): Boolean = {
-    val calendar = Calendar.getInstance()
-    val dateFormat = new SimpleDateFormat("yyyy/MM/dd")
-    var lastVote: String = null
+  def addChainVote(name: String): Boolean =
+    DB.localTx { implicit session =>
+      val calendar = Calendar.getInstance()
+      val dateFormat = new SimpleDateFormat("yyyy/MM/dd")
 
-    try {
-      val readLastVote = gateway.executeQuery(s"SELECT lastvote FROM $tableReference WHERE name = '$name'")
-        .recordIteration { lrs =>
-          lrs.getString("lastvote")
-        }.headOption.getOrElse(return false)
+      val lastVote = {
+        val readLastVote =
+          sql"SELECT lastvote FROM playerdata WHERE name = $name"
+            .map(_.string("lastvote"))
+            .headOption()
+            .apply()
+            .getOrElse(return false)
 
-      lastVote =
         if (readLastVote == null || readLastVote == "")
           dateFormat.format(calendar.getTime)
         else
           readLastVote
+      }
 
-      val update = s"UPDATE $tableReference  SET lastvote = '${dateFormat.format(calendar.getTime)}' WHERE name = '$name'"
+      sql"UPDATE playerdata SET lastvote = ${dateFormat.format(calendar.getTime)} WHERE name = $name"
+        .update().apply()
 
-      gateway.executeUpdate(update)
-    } catch {
-      case e: SQLException =>
-        Bukkit.getLogger.warning(s"${Util.getName(name)} sql failed. => lastvote")
-        e.printStackTrace()
-        return false
-    }
+      val TodayDate = dateFormat.parse(dateFormat.format(calendar.getTime))
+      val LastDate = dateFormat.parse(lastVote)
+      val TodayLong = TodayDate.getTime
+      val LastLong = LastDate.getTime
 
-    try {
-      gateway.executeQuery(s"SELECT chainvote FROM $tableReference WHERE name = '$name'")
-        .recordIteration { lrs =>
-          val TodayDate = dateFormat.parse(dateFormat.format(calendar.getTime))
-          val LastDate = dateFormat.parse(lastVote)
-          val TodayLong = TodayDate.getTime
-          val LastLong = LastDate.getTime
+      val dateDiff = (TodayLong - LastLong) / (1000 * 60 * 60 * 24)
+      val shouldIncrementChainVote = dateDiff <= 2L
 
-          val dateDiff = (TodayLong - LastLong) / (1000 * 60 * 60 * 24)
-          val count =
-            if (dateDiff <= 2L)
-              lrs.getInt("chainvote") + 1
-            else
-              1
+      val newCount = if (shouldIncrementChainVote) {
+        sql"""select chainvote from playerdata where name = $name"""
+          .map(_.int("chainvote"))
+          .first().apply()
+          .get + 1
+      } else 1
 
-          //プレイヤーがオンラインの時即時反映させる
-          val player = Bukkit.getServer.getPlayer(name)
-          if (player != null) {
-            val playerData = SeichiAssist.playermap(player.getUniqueId)
-
-            playerData.ChainVote = count
-          }
-
-          (count, name)
-        }
-        .map { case (count, name) => s"UPDATE $tableReference SET chainvote = $count WHERE name = '$name'" }
-        .foreach(gateway.executeUpdate)
-    } catch {
-      case e: SQLException =>
-        Bukkit.getLogger.warning(Util.getName(name) + " sql failed. => chainvote")
-        e.printStackTrace()
-        return false
-    }
-
-    true
+      sql"""update playerdata set chainvote = $newCount where name = $name"""
+      true
   }
-
-  def addContributionPoint(targetPlayerName: String, point: Int): IO[ResponseEffectOrResult[CommandSender, Unit]] = {
-    val executeUpdate: IO[ResponseEffectOrResult[CommandSender, Unit]] = IO {
-      val updateCommand = s"UPDATE $tableReference SET contribute_point = contribute_point + $point WHERE name = '$targetPlayerName'"
-
-      if (gateway.executeUpdate(updateCommand) == ActionStatus.Fail) {
-        Bukkit.getLogger.warning(s"sql failed on updating $targetPlayerName's contribute_point")
-        Left(s"${RED}貢献度ptの変更に失敗しました。".asMessageEffect())
-      } else {
-        Right(())
-      }
-    }
-
-    val updatePlayerDataMemoryCache: IO[Unit] = IO {
-      val targetPlayer = Bukkit.getServer.getPlayer(targetPlayerName)
-      if (targetPlayer != null) {
-        val targetPlayerData = SeichiAssist.playermap(targetPlayer.getUniqueId)
-
-        targetPlayerData.contribute_point += point
-        targetPlayerData.setContributionPoint(point)
-      }
-    }
-
-    for {
-      _ <- EitherT(assertPlayerDataExistenceFor(targetPlayerName))
-      _ <- EitherT(executeUpdate)
-      _ <- EitherT.right[TargetedEffect[CommandSender]](updatePlayerDataMemoryCache)
-    } yield ()
-    }.value
-
-  private def assertPlayerDataExistenceFor(playerName: String): IO[ResponseEffectOrResult[CommandSender, Unit]] =
-    IO {
-      try {
-        // TODO: 本当にStarSelectじゃなきゃだめ?
-        val resultSet = gateway.executeQuery(s"select * from $tableReference where name = $playerName")
-
-        if (!resultSet.next()) {
-          Left(s"$RED$playerName はデータベースに登録されていません。".asMessageEffect())
-        } else {
-          Right(())
-        }
-      } catch {
-        case e: SQLException =>
-          Bukkit.getLogger.warning(s"sql failed on checking data existence of $playerName")
-          e.printStackTrace()
-
-          Left(s"${RED}プレーヤーデータへのアクセスに失敗しました。".asMessageEffect())
-      }
-    }
 
   // anniversary変更
   def setAnniversary(anniversary: Boolean, uuid: Option[UUID]): Boolean = {
@@ -282,14 +191,13 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
     true
   }
 
-  // TODO remove `playerData` from argument
-  def saveSharedInventory(player: Player, playerData: PlayerData, serializedInventory: String): IO[ResponseEffectOrResult[Player, Unit]] = {
+  def saveSharedInventory(player: Player, serializedInventory: String): IO[ResponseEffectOrResult[Player, Unit]] = {
     val assertSharedInventoryBeEmpty: EitherT[IO, TargetedEffect[CommandSender], Unit] =
       for {
-        sharedInventorySerialized <- EitherT(loadShareInv(player, playerData))
+        sharedInventorySerialized <- EitherT(loadShareInv(player))
         _ <- EitherT.fromEither[IO] {
           if (sharedInventorySerialized != null && sharedInventorySerialized != "")
-            Left(s"${RED}既にアイテムが収納されています".asMessageEffect())
+            Left(MessageEffect(s"${RED}既にアイテムが収納されています"))
           else
             Right(())
         }
@@ -301,7 +209,7 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
 
       if (gateway.executeUpdate(updateCommand) == ActionStatus.Fail) {
         Bukkit.getLogger.warning(s"${player.getName} database failure.")
-        Left(s"$${RED}アイテムの収納に失敗しました".asMessageEffect())
+        Left(MessageEffect(s"${RED}アイテムの収納に失敗しました"))
       } else {
         Right(())
       }
@@ -314,7 +222,7 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
     } yield ()
     }.value
 
-  def loadShareInv(player: Player, playerData: PlayerData): IO[ResponseEffectOrResult[CommandSender, String]] = {
+  def loadShareInv(player: Player): IO[ResponseEffectOrResult[CommandSender, String]] = {
     val loadInventoryData: IO[Either[Nothing, String]] = EitherT.right(IO {
       val command = s"SELECT shareinv FROM $tableReference WHERE uuid = '${player.getUniqueId}'"
 
@@ -334,7 +242,7 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
         Bukkit.getLogger.warning(s"database failure for $targetName.")
         error.printStackTrace()
 
-        Left(s"${RED}データベースアクセスに失敗しました。".asMessageEffect())
+        Left(MessageEffect(s"${RED}データベースアクセスに失敗しました。"))
       }
       case Right(result) => IO.pure(result)
     }
@@ -345,7 +253,7 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
     IO {
       //連打による負荷防止
       if (!playerData.shareinvcooldownflag)
-        Left(s"${RED}しばらく待ってからやり直してください".asMessageEffect())
+        Left(MessageEffect(s"${RED}しばらく待ってからやり直してください"))
       else {
         new CoolDownTask(player, CoolDownTask.SHAREINV).runTaskLater(plugin, 200)
         Right(())
@@ -358,7 +266,7 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
 
     if (gateway.executeUpdate(command) == ActionStatus.Fail) {
       Bukkit.getLogger.warning(s"${player.getName} sql failed. => clearShareInv")
-      Left(s"${RED}アイテムのクリアに失敗しました".asMessageEffect())
+      Left(MessageEffect(s"${RED}アイテムのクリアに失敗しました"))
     } else
       Right(())
   }
@@ -395,39 +303,9 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
    *         TODO この処理はDB上と通信を行う為非同期にすべき
    */
   def successRankingUpdate(): Boolean = {
-    if (!successBlockRankingUpdate()) return false
     if (!successPlayTickRankingUpdate()) return false
     if (!successVoteRankingUpdate()) return false
-    if (!successPremiumEffectPointRanking()) return false
     successAppleNumberRankingUpdate()
-
-  }
-
-  //ランキング表示用に総破壊ブロック数のカラムだけ全員分引っ張る
-  private def successBlockRankingUpdate(): Boolean = {
-    val ranklist = mutable.ArrayBuffer[RankData]()
-    SeichiAssist.allplayerbreakblockint = 0
-    val command = ("select name,level,totalbreaknum from " + tableReference
-      + " order by totalbreaknum desc")
-    try {
-      gateway.executeQuery(command).recordIteration { lrs =>
-        val rankdata = new RankData()
-        rankdata.name = lrs.getString("name")
-        rankdata.level = lrs.getInt("level")
-        rankdata.totalbreaknum = lrs.getLong("totalbreaknum")
-        ranklist += rankdata
-        SeichiAssist.allplayerbreakblockint += rankdata.totalbreaknum
-      }
-    } catch {
-      case e: SQLException =>
-        println("sqlクエリの実行に失敗しました。以下にエラーを表示します")
-        e.printStackTrace()
-        return false
-    }
-
-    SeichiAssist.ranklist.clear()
-    SeichiAssist.ranklist.addAll(ranklist)
-    true
   }
 
   //ランキング表示用にプレイ時間のカラムだけ全員分引っ張る
@@ -478,30 +356,6 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
     true
   }
 
-  //ランキング表示用にプレミアムエフェクトポイントのカラムだけ全員分引っ張る
-  private def successPremiumEffectPointRanking(): Boolean = {
-    val ranklist = mutable.ArrayBuffer[RankData]()
-    val command = ("select name,premiumeffectpoint from " + tableReference
-      + " order by premiumeffectpoint desc")
-    try {
-      gateway.executeQuery(command).recordIteration { lrs =>
-        val rankdata = new RankData()
-        rankdata.name = lrs.getString("name")
-        rankdata.premiumeffectpoint = lrs.getInt("premiumeffectpoint")
-        ranklist += rankdata
-      }
-    } catch {
-      case e: SQLException =>
-        println("sqlクエリの実行に失敗しました。以下にエラーを表示します")
-        e.printStackTrace()
-        return false
-    }
-
-    SeichiAssist.ranklist_premiumeffectpoint.clear()
-    SeichiAssist.ranklist_premiumeffectpoint.addAll(ranklist)
-    true
-  }
-
   //ランキング表示用に上げたりんご数のカラムだけ全員分引っ張る
   private def successAppleNumberRankingUpdate(): Boolean = {
     val ranklist = mutable.ArrayBuffer[RankData]()
@@ -530,17 +384,6 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
   //全員に詫びガチャの配布
   def addAllPlayerBug(amount: Int): ActionStatus = {
     val command = s"update $tableReference set numofsorryforbug = numofsorryforbug + $amount"
-    gateway.executeUpdate(command)
-  }
-
-  /**
-   * プレイヤーのガチャ券枚数を変更します
-   * @param playerName プレイヤーの名前
-   * @param amount 変更後のプレーヤーのガチャ券の枚数
-   * @return [ActionStatus]
-   */
-  def changeGachaAmountOf(playerName: String, amount: Int): ActionStatus = {
-    val command = s"update $tableReference set gachapoint = ${1000 * amount} where name = '$playerName'"
     gateway.executeUpdate(command)
   }
 
@@ -575,9 +418,9 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
           s"${RED}プレイヤー名が正しいのにこのエラーが出る場合、最終ログイン時間が古い可能性があります。"
         )
 
-        errorEffect.followedBy(messages.asMessageEffect())
+        errorEffect.followedBy(MessageEffect(messages))
       case Right(lastQuit) =>
-        s"${playerName}の最終ログアウト日時：$lastQuit".asMessageEffect()
+        MessageEffect(s"${playerName}の最終ログアウト日時：$lastQuit")
     }
   }
 
