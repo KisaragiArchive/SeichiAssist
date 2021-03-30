@@ -63,7 +63,7 @@ jobs:
           sudo rm -f /tmp/mysql.sock
       - name: Init MariaDB
         run: |
-          mysql -u root --password= -e "
+          sudo mysql -u root --password= -e "
           UPDATE mysql.user SET Password=PASSWORD('${{ secrets.RootPassword }}') WHERE User='root';
           DELETE FROM mysql.user WHERE User='';
           DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
