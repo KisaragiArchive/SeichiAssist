@@ -85,10 +85,13 @@ jobs:
       - name: Apply initial SQL
         run: |
           echo Apply initial SQL: gachadata.sql...
-          sudo mysql -u root -p < gachadata.sql
+          sudo mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} < gachadata.sql
           echo Apply initial SQL: msgachadata.sql...
-          sudo mysql -u root -p < msgachadata.sql
-          
+          sudo mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} < msgachadata.sql
+      - name: Apply migration SQL
+        run: |
+          cd $GITHUB_WORKSPACE
+          ls
           
           
           
