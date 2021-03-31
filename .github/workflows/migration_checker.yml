@@ -92,6 +92,24 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE
           ls
+          cd $GITHUB_WORKSPACE/src/main/resources/db/migration
+          ruby -e '`ls`.split("\n").sort_by {|x| x.gsub(/V(\d+)\.(\d+)\.(\d+)/) {
+                     $1.to_i * 9999999999 + $2.to_i * 999999 + $3.to_i * 1}.to_i
+                   }.each {|x|
+                     puts "Applying #{x}..."
+                     puts `mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} < #{x}`
+                   }'
+          cd $GITHUB_WORKSPACE
+      - name: Import data
+        run: |
+          echo Applying gachadata.sql
+          mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} < gachadata.sql
+          echo Applying msgachadata.sql
+          mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} < msgachadata.sql
+      - name: Finalization
+        run: |
+          echo $(tput setaf 46)Migration test: Passed
+          exit 0
           
           
           
