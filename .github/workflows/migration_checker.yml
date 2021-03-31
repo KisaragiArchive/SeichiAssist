@@ -82,12 +82,12 @@ jobs:
         run: |
           echo Apply test SQL:
           sudo mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} -e "SHOW DATABASES"
-      - name: Apply initial SQL
-        run: |
-          echo Apply initial SQL: gachadata.sql...
-          sudo mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} seichiassist < gachadata.sql
-          echo Apply initial SQL: msgachadata.sql...
-          sudo mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} seichiassist < msgachadata.sql
+      #- name: Apply initial SQL
+      #  run: |
+      #    echo Apply initial SQL: gachadata.sql...
+      #    sudo mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} seichiassist < gachadata.sql
+      #    echo Apply initial SQL: msgachadata.sql...
+      #    sudo mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} seichiassist < msgachadata.sql
       - name: Apply migration SQL
         run: |
           cd $GITHUB_WORKSPACE
