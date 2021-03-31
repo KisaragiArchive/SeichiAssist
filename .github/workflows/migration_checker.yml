@@ -54,6 +54,12 @@ jobs:
       - name: CREATE DATABASE seichiassist
         run: |
           mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} -e "create database if not exists seichiassist character set utf8 collate utf8_general_ci"
+      - name: Import dumped SQL
+        run: |
+          echo Applying gachadata.sql ...
+          mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} seichiassist < gachadata.sql
+          echo Applying msgachadata.sql ...
+          mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} seichiassist < msgachadata.sql
       - name: Apply migration SQL
         run: |
           cd $GITHUB_WORKSPACE
@@ -66,12 +72,6 @@ jobs:
                      puts `mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} < #{x}`
                    }'
           cd $GITHUB_WORKSPACE
-      - name: Import dumped SQL
-        run: |
-          echo Applying gachadata.sql ...
-          mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} seichiassist < gachadata.sql
-          echo Applying msgachadata.sql ...
-          mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} seichiassist < msgachadata.sql
       - name: Finalization
         run: |
           echo $(tput setaf 46)Migration test: Passed
