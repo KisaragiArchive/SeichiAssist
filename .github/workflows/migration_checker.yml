@@ -74,7 +74,7 @@ jobs:
           cd $GITHUB_WORKSPACE
       - name: Finalization
         run: |
-          echo $(tput setaf 46)Migration test: Passed
+          echo -e "\e[38;5;68m\e[1m\e[4mMigration test: Succeeded\e[0m"
           exit 0
           
           
