@@ -31,17 +31,6 @@ jobs:
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
-      # Shutdown default MySQL
-      #- name: Shutdown Ubuntu MySQL (SUDO)
-      #  run: sudo service mysql stop # Shutdown the Default MySQL, "sudo" is necessary, please not remove it
-      #- name: Uninstall MySQL
-      #  run: sudo apt remove mysql-server
-      #- name: Install MariaDB
-      #  run: sudo apt-get install mariadb-server
-      #- name: Clean Sockets
-      #  run: |
-      #    sudo rm -f /var/run/mysqld/mysqld.sock
-      #    sudo rm -f /tmp/mysql.sock
       - name: Fetch initial SQL files
         run: |
           r=$(curl -I https://redmine.seichi.click/attachments/download/895/gachadata.sql | head -n 1 | awk '{print $2}')
@@ -58,36 +47,13 @@ jobs:
           fi
           wget https://redmine.seichi.click/attachments/download/894/msgachadata.sql
           echo Initial files: fetched.
-      # - uses: getong/mariadb-action@v1.1
-      #  with:
-      #    host port: 3306 # Optional, default value is 3306. The port of host
-      #    mariadb version: '10.1.37' # Optional, default value is "latest". The version of the MariaDB
-      #    mysql root password: ${{ secrets.RootPassword }} # Required if "mysql user" is empty, default is empty. The root superuser password
-      # Runs a set of commands using the runners shell
-      #- name: Clean Sockets (2)
-      #  run: |
-      #    sudo rm -f /var/run/mysqld/mysqld.sock
-      #    sudo rm -f /tmp/mysql.sock
-      #- name: Init MariaDB
-      #  run: |
-      #    sudo mysql -u root --password= -e "
-      #    UPDATE mysql.user SET Password=PASSWORD('${{ secrets.RootPassword }}') WHERE User='root';
-      #    DELETE FROM mysql.user WHERE User='';
-      #    DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
-      #    DROP DATABASE test;
-      #    DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
-      #    FLUSH PRIVILEGES;"
-      # https://qiita.com/sayama0402/items/e863ffb597ce87bf2e2f
       - name: Apply test SQL
         run: |
           echo Apply test SQL:
           sudo mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} -e "SHOW DATABASES"
-      #- name: Apply initial SQL
-      #  run: |
-      #    echo Apply initial SQL: gachadata.sql...
-      #    sudo mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} seichiassist < gachadata.sql
-      #    echo Apply initial SQL: msgachadata.sql...
-      #    sudo mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} seichiassist < msgachadata.sql
+      - name: CREATE DATABASE seichiassist
+        run: |
+          mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} -e "create database if not exists seichiassist character set utf8 collate utf8_general_ci"
       - name: Apply migration SQL
         run: |
           cd $GITHUB_WORKSPACE
@@ -96,15 +62,15 @@ jobs:
           ruby -e '`ls`.split("\n").sort_by {|x| x.gsub(/V(\d+)\.(\d+)\.(\d+)/) {
                      $1.to_i * 9999999999 + $2.to_i * 999999 + $3.to_i * 1}.to_i
                    }.each {|x|
-                     puts "Applying #{x}..."
+                     puts "Applying #{x} ..."
                      puts `mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} < #{x}`
                    }'
           cd $GITHUB_WORKSPACE
-      - name: Import data
+      - name: Import dumped SQL
         run: |
-          echo Applying gachadata.sql
+          echo Applying gachadata.sql ...
           mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} seichiassist < gachadata.sql
-          echo Applying msgachadata.sql
+          echo Applying msgachadata.sql ...
           mysql -h 127.0.0.1 --port 3306 -u root -p${{ secrets.RootPassword }} seichiassist < msgachadata.sql
       - name: Finalization
         run: |
