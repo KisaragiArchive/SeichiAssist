@@ -30,20 +30,18 @@ object PlayerDataLoading {
    * @author unchama
    */
   @Deprecated()
-  def loadExistingPlayerData(playerUUID: UUID, playerName: String): PlayerData = {
-    val config = SeichiAssist.seichiAssistConfig
+  def loadExistingPlayerData(uuid: UUID, playerName: String): PlayerData = {
     val databaseGateway = SeichiAssist.databaseGateway
 
-    val uuid: UUID = playerUUID
-    val stringUuid: String = uuid.toString.toLowerCase()
-    val db: String = SeichiAssist.seichiAssistConfig.getDB
-    val timer: MillisecondTimer = MillisecondTimer.getInitializedTimerInstance
+    val stringUuid = uuid.toString.toLowerCase()
+    val databaseName = SeichiAssist.seichiAssistConfig.getDB
+    val timer = MillisecondTimer.getInitializedTimerInstance
 
-    val playerData = new PlayerData(playerUUID, playerName)
+    val playerData = new PlayerData(uuid, playerName)
 
     def updateLoginInfo(stmt: Statement): Unit = {
       val loginInfoUpdateCommand = ("update "
-        + db + "." + DatabaseConstants.PLAYERDATA_TABLENAME + " "
+        + databaseName + "." + DatabaseConstants.PLAYERDATA_TABLENAME + " "
         + "set loginflag = true, "
         + "lastquit = cast(now() as datetime) "
         + "where uuid = '" + stringUuid + "'")
@@ -53,7 +51,7 @@ object PlayerDataLoading {
 
     def loadMineStack(stmt: Statement): Unit = {
       val mineStackDataQuery = ("select * from "
-        + db + "." + DatabaseConstants.MINESTACK_TABLENAME + " where "
+        + databaseName + "." + DatabaseConstants.MINESTACK_TABLENAME + " where "
         + "player_uuid = '" + stringUuid + "'")
 
       /**
@@ -88,7 +86,7 @@ object PlayerDataLoading {
     def loadGridTemplate(stmt: Statement): Unit = {
       // TODO: 本当にStarSelectじゃなきゃだめ?
       val gridTemplateDataQuery = ("select * from "
-        + db + "." + DatabaseConstants.GRID_TEMPLATE_TABLENAME + " where "
+        + databaseName + "." + DatabaseConstants.GRID_TEMPLATE_TABLENAME + " where "
         + s"designer_uuid = '$stringUuid'")
 
       stmt.executeQuery(gridTemplateDataQuery).recordIteration { resultSet: ResultSet =>
@@ -113,7 +111,7 @@ object PlayerDataLoading {
 
     def loadSkillEffectUnlockState(stmt: Statement): Set[UnlockableActiveSkillEffect] = {
       val unlockedSkillEffectQuery =
-        s"select effect_name from $db.${DatabaseConstants.SKILL_EFFECT_TABLENAME} where player_uuid = '$stringUuid'"
+        s"select effect_name from $databaseName.${DatabaseConstants.SKILL_EFFECT_TABLENAME} where player_uuid = '$stringUuid'"
 
       stmt.executeQuery(unlockedSkillEffectQuery).recordIteration { resultSet: ResultSet =>
         val effectName = resultSet.getString("effect_name")
@@ -150,7 +148,7 @@ object PlayerDataLoading {
       val obtainedEffects = loadSkillEffectUnlockState(stmt)
       val obtainedSkills = loadSeichiSkillUnlockState(stmt)
 
-      val command = ("select * from " + db + "." + DatabaseConstants.PLAYERDATA_TABLENAME
+      val command = ("select * from " + databaseName + "." + DatabaseConstants.PLAYERDATA_TABLENAME
         + " where uuid = '" + stringUuid + "'")
 
       stmt.executeQuery(command).recordIteration { rs: ResultSet =>
