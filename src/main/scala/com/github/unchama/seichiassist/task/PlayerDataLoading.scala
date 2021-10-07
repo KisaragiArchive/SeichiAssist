@@ -33,9 +33,8 @@ object PlayerDataLoading {
     val stringUuid = uuid.toString.toLowerCase()
     val databaseName = SeichiAssist.seichiAssistConfig.getDB
 
-    val playerData = new PlayerData(uuid, playerName)
-
     import scalikejdbc._
+    import cats.implicits._
 
     //noinspection MutatorLikeMethodIsParameterless
     def updateLoginInfoF[F[_] : Sync]: F[Unit] = Sync[F].delay {
@@ -50,7 +49,7 @@ object PlayerDataLoading {
       }
     }
 
-    def loadMineStackF[F[_] : Sync]: F[Unit] = Sync[F].delay {
+    def loadMineStackF[F[_] : Sync]: F[mutable.HashMap[MineStackObj, Long]] = Sync[F].delay {
       /*
        * TODO:これはここにあるべきではない
        * 格納可能なアイテムのリストはプラグインインスタンスの中に動的に持たれるべきで、
@@ -90,14 +89,15 @@ object PlayerDataLoading {
           .warning(s"プレーヤー $playerName のMineStackオブジェクト $name は収納可能リストに見つかりませんでした。")
       }
 
+      objectAmounts
     }
 
-    def loadGridTemplateF[F[_] : Sync]: F[Unit] = Sync[F].delay {
-      val map = DB.readOnly { implicit session =>
+    def fetchGridTemplate[F[_] : Sync]: F[Map[Int, GridTemplate]] = Sync[F].delay {
+      DB.readOnly { implicit session =>
         sql"""
-              |SELECT id, ahead_length, behind_length, right_length, left_length
-              |FROM $databaseName.${DatabaseConstants.GRID_TEMPLATE_TABLENAME}
-              |WHERE designer_uuid = $stringUuid""".stripMargin
+             |SELECT id, ahead_length, behind_length, right_length, left_length
+             |FROM $databaseName.${DatabaseConstants.GRID_TEMPLATE_TABLENAME}
+             |WHERE designer_uuid = $stringUuid""".stripMargin
           .map { rs =>
             val id = rs.int("id")
             val ahead = rs.int("ahead_length")
@@ -111,8 +111,11 @@ object PlayerDataLoading {
           .apply()
           .toMap
       }
+    }
 
-      // TODO split mutation to another method
+    def loadGridTemplateF[F[_] : Sync](playerData: PlayerData): F[Unit] = for {
+      map <- fetchGridTemplate
+    } yield {
       playerData.templateMap = mutable.HashMap.from(map)
     }
 
@@ -161,29 +164,31 @@ object PlayerDataLoading {
           .toSet
       }
     }
-    import cats.implicits._
 
-    def loadPlayerDataF[F[_] : Sync]: F[PlayerData] = for {
+    def constructPlayerDataF[F[_] : Sync]: F[PlayerData] = for {
       obtainedEffects <- loadSkillEffectUnlockStateF
       obtainedSkills <- loadSeichiSkillUnlockStateF
     } yield {
       DB.readOnly { implicit session =>
+        // すべてのカラムを列挙すると保守性とのトレードオフで分が悪くなるのでこれはこのままにしておいたほうが良さそう
         sql"""
-             |SELECT
-             |  killlogflag,
-             |  worldguardlogflag,
-             |  multipleidbreakflag,
+             |SELECT *
              |FROM $databaseName.${DatabaseConstants.PLAYERDATA_TABLENAME}
              |WHERE uuid = $stringUuid
              |""".stripMargin
           .map { rs =>
+            val playerData = new PlayerData(uuid, playerName)
+
             playerData.settings.shouldDisplayDeathMessages = rs.boolean("killlogflag")
             playerData.settings.shouldDisplayWorldGuardLogs = rs.boolean("worldguardlogflag")
 
             playerData.settings.multipleidbreakflag = rs.boolean("multipleidbreakflag")
 
             playerData.settings.pvpflag = rs.boolean("pvpflag")
-            playerData.settings.broadcastMutingSettings = BroadcastMutingSettings.fromBooleanSettings(rs.boolean("everymessage"), rs.boolean("everysound"))
+            playerData.settings.broadcastMutingSettings = BroadcastMutingSettings.fromBooleanSettings(
+              rs.boolean("everymessage"),
+              rs.boolean("everysound")
+            )
             playerData.settings.nickname = PlayerNickname(
               NicknameStyle.marshal(rs.boolean("displayTypeLv")),
               rs.int("displayTitle1No"),
@@ -197,7 +202,7 @@ object PlayerDataLoading {
               val selectedEffect =
                 UnlockableActiveSkillEffect
                   .withNameOption(rs.string("selected_effect"))
-                  .flatMap { eff => Some(eff).filter(obtainedEffects.contains) }
+                  .filter(a => obtainedEffects.contains(a))
 
               PlayerSkillEffectState(obtainedEffects, selectedEffect.getOrElse(NoEffect))
             }
@@ -242,6 +247,7 @@ object PlayerDataLoading {
             playerData.LimitedLoginCount = rs.int("LimitedLoginCount")
 
             //連続・通算ログインの情報、およびその更新
+            // TODO: Calendar.getInstanceとSimpleDateFormatは殺す
             val cal = Calendar.getInstance()
             val sdf = new SimpleDateFormat("yyyy/MM/dd")
             val lastIn = rs.string("lastcheckdate")
@@ -274,7 +280,7 @@ object PlayerDataLoading {
               if (dateDiff >= 1L) {
                 val newTotalLoginDay = playerData.loginStatus.totalLoginDay + 1
                 val newConsecutiveLoginDays =
-                  if (dateDiff <= 2L)
+                  if (dateDiff == 1L) // 連続しているか？
                     playerData.loginStatus.consecutiveLoginDays + 1
                   else
                     1
@@ -293,11 +299,11 @@ object PlayerDataLoading {
             //実績解除フラグのBitSet型への復元処理
             //初回nullエラー回避のための分岐
             try {
-              val Titlenums = rs.string("TitleFlags").split(",").reverse.dropWhile(_.isEmpty).reverse
+              val rawTitleBinary = rs.string("TitleFlags").split(",").reverse.dropWhile(_.isEmpty).reverse
 
-              val Titlearray = Titlenums.map { x: String => java.lang.Long.parseUnsignedLong(x, 16) }
-              val TitleFlags = mutable.BitSet.fromBitMask(Titlearray)
-              playerData.TitleFlags = TitleFlags
+              val decodedBits = rawTitleBinary.map { x: String => java.lang.Long.parseUnsignedLong(x, 16) }
+              val bitSet = mutable.BitSet.fromBitMask(decodedBits)
+              playerData.TitleFlags = bitSet
             } catch {
               case _: Exception =>
                 playerData.TitleFlags = new mutable.BitSet(10000)
@@ -321,6 +327,8 @@ object PlayerDataLoading {
               rs.boolean("isGBStageUp")
             )
             playerData.anniversary = rs.boolean("anniversary")
+
+            playerData
           }
           .single()
           .apply()
@@ -332,17 +340,18 @@ object PlayerDataLoading {
     databaseGateway.ensureConnection()
 
     //同ステートメントだとmysqlの処理がバッティングした時に止まってしまうので別ステートメントを作成する
-    val program: IO[Unit] = for {
-      _ <- loadPlayerDataF[IO]
+    val program: IO[PlayerData] = for {
+      pd <- constructPlayerDataF[IO]
       _ <- updateLoginInfoF[IO]
-      _ <- loadGridTemplateF[IO]
+      _ <- loadGridTemplateF[IO](pd)
       _ <- loadMineStackF[IO]
-    } yield ()
+    } yield {
+      pd
+    }
 
     // TODO this may not be needed
     implicit val logger = SeichiAssist.instance.logger
     MillisecondTimer.timeF(program)(s"$GREEN${playerName}のプレイヤーデータ読込完了")
-
-    playerData
+      .unsafeRunSync()
   }
 }
