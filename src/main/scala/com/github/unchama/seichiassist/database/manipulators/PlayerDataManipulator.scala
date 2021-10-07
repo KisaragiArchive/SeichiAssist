@@ -177,18 +177,20 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
 
       sql"""update playerdata set chainvote = $newCount where name = $name"""
       true
-  }
-
-  // anniversary変更
-  def setAnniversary(anniversary: Boolean, uuid: Option[UUID]): Boolean = {
-    val command = s"UPDATE $tableReference SET anniversary = $anniversary" +
-      uuid.map(u => s" WHERE uuid = '$u'").getOrElse("")
-
-    if (gateway.executeUpdate(command) == ActionStatus.Fail) {
-      Bukkit.getLogger.warning("sql failed. => setAnniversary")
-      return false
     }
-    true
+
+  /**
+   * 全プレイヤーのanniversaryフラグを変更する。
+   * @param anniversary 変更する値
+   * @return 変更が成功したならtrue、変更に失敗したならfalse
+   */
+  def setAnniversaryGlobally(anniversary: Boolean): Boolean = {
+    scala.util.Try {
+      sql"""UPDATE $tableReference SET anniversary = $anniversary""".update()
+    }.toEither.fold(_ => {
+      Bukkit.getLogger.warning("sql failed. => setAnniversaryGlobally")
+      false
+    }, _ => true)
   }
 
   def saveSharedInventory(player: Player, serializedInventory: String): IO[ResponseEffectOrResult[Player, Unit]] = {

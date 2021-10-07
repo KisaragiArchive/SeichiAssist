@@ -61,7 +61,7 @@ object SeichiAssistCommand {
     .refineSenderWithError[ConsoleCommandSender]("コンソール専用コマンドです")
     .execution { _ =>
       IO {
-        SeichiAssist.databaseGateway.playerDataManipulator.setAnniversary(anniversary = true, null)
+        SeichiAssist.databaseGateway.playerDataManipulator.setAnniversaryGlobally(anniversary = true)
 
         MessageEffect("Anniversaryアイテムの配布を開始しました。")
       }
