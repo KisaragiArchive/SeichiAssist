@@ -10,17 +10,6 @@ class MillisecondTimer private() {
     startTime = System.nanoTime()
   }
 
-  /**
-   * @deprecated use [[sendLapTimeMessageWithLogger]]
-   */
-  @Deprecated() def sendLapTimeMessage(message: String): Unit = {
-    val recordedNanoSecondDuration = System.nanoTime() - startTime
-
-    println(s"$message(time: ${recordedNanoSecondDuration / 1000000L} ms)")
-
-    startTime = System.nanoTime()
-  }
-
   def sendLapTimeMessageWithLogger(message: String)(implicit logger: Logger): Unit = {
     val recordedNanoSecondDuration = System.nanoTime() - startTime
 
