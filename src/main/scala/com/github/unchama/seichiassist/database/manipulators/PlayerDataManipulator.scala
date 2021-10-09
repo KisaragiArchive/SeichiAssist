@@ -56,7 +56,7 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
   /**
    * 投票特典配布時の処理(p_givenvoteの値の更新もココ)
    */
-  def compareVotePoint(player: Player, playerdata: PlayerData): Int = {
+  def fetchLeftVotingCount(player: Player, playerdata: PlayerData): Int = {
     /*
       TODO: ifCoolDownThenGetは単なる時間差分である。わざわざPlayerDataに依存する必要はない。
         これをぶっ潰したあとにUUIDを受け取れば十分なのでそれで代用するべき。

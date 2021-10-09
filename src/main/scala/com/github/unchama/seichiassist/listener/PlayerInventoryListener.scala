@@ -413,7 +413,7 @@ class PlayerInventoryListener(implicit effectEnvironment: EffectEnvironment,
       //投票pt受取
       if (itemstackcurrent.getType == Material.DIAMOND) {
         //nは特典をまだ受け取ってない投票分
-        var n = databaseGateway.playerDataManipulator.compareVotePoint(player, playerdata)
+        var n = databaseGateway.playerDataManipulator.fetchLeftVotingCount(player, playerdata)
         //投票数に変化が無ければ処理終了
         if (n == 0) {
           return
