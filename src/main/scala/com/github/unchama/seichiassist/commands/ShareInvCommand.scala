@@ -39,7 +39,7 @@ import scala.jdk.CollectionConverters._
       for {
         serial <- EitherT(databaseGateway.playerDataManipulator.loadShareInv(player))
         _ <- EitherT.cond[IO](serial != "", (), MessageEffect(s"$RESET$RED${BOLD}収納アイテムが存在しません。"))
-        _ <- EitherT(databaseGateway.playerDataManipulator.clearShareInv(player, playerData))
+        _ <- EitherT(databaseGateway.playerDataManipulator.clearSharedInventory(player.getUniqueId))
         playerInventory = player.getInventory
         _ <- EitherT.right {
           IO {
@@ -56,7 +56,7 @@ import scala.jdk.CollectionConverters._
         }
         successful <- EitherT.rightT[IO, TargetedEffect[Player]](MessageEffect(s"${GREEN}アイテムを取得しました。手持ちにあったアイテムはドロップしました。"))
       } yield successful
-      }.merge
+    }.merge
   }
 
   def dropIfNotEmpty(itemStackOption: Option[ItemStack], to: Player): Unit = {

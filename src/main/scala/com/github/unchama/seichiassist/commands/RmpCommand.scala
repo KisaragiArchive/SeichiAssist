@@ -115,18 +115,20 @@ object RmpCommand {
     val databaseGateway = SeichiAssist.databaseGateway
 
     val leavers = databaseGateway.playerDataManipulator.selectLeaversUUIDs(daysThreshold)
-    if (leavers == null) {
-      return Left(MessageEffect(s"${RED}データベースアクセスに失敗しました。"))
-    }
+    import cats.implicits._
+    leavers.map(
+      either => either.bimap(
+        _ => MessageEffect(s"${RED}データベースアクセスに失敗しました。"),
+        leavers => {
+          val regions = ExternalPlugins.getWorldGuard.getRegionContainer.get(world).getRegions.asScala
 
-    val regions = ExternalPlugins.getWorldGuard.getRegionContainer.get(world).getRegions.asScala
-
-    val oldRegions = regions.values.filter { region =>
-      region.getId != "__global__" && region.getId != "spawn" &&
-        region.getOwners.getUniqueIds.asScala.forall(leavers.contains(_))
-    }.toList
-
-    Right(oldRegions)
+          regions.values.filter { region =>
+            region.getId != "__global__" && region.getId != "spawn" &&
+              region.getOwners.getUniqueIds.asScala.forall(leavers.contains(_))
+          }.toList
+        }
+      )
+    ).unsafeRunSync()
   }
 
   val executor: TabExecutor =
