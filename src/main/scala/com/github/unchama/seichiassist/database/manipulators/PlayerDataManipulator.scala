@@ -108,33 +108,34 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
   /**
    * 最新のnumofsorryforbug値を返してmysqlのnumofsorrybug値を初期化する処理
    */
-  def givePlayerBug(player: Player): Int = {
+  def givePlayerBug(player: Player): ResponseEffectOrResult[CommandSender, Int] = {
     val uuid = player.getUniqueId.toString
     val program = for {
-      aw <- handleQueryError(Try {
-        DB.readOnly { implicit session =>
-          sql"select numofsorryforbug from $tableReference where uuid = $uuid"
-            .map(rs => rs.int("numofsorryforbug"))
-            .single()
-            .apply()
-            .get
-        }
-      })(_ => {
-        player.sendMessage(RED.toString + "ガチャ券の受け取りに失敗しました")
-        return 0
-      })(Math.min(_, 64 * 9))
-      numberToGrant = aw.merge
-      _ <- handleQueryError(Try {
-        DB.localTx { implicit session =>
-          sql"update $tableReference set numofsorryforbug = numofsorryforbug - $numberToGrant where uuid = '$uuid'"
-        }
-      })(_ => {
-        player.sendMessage(RED.toString + "ガチャ券の受け取りに失敗しました")
-        return 0
-      })(_ => ())
+      numberToGrant <- EitherT(
+        handleQueryError(Try {
+          DB.readOnly { implicit session =>
+            sql"select numofsorryforbug from $tableReference where uuid = $uuid"
+              .map(rs => rs.int("numofsorryforbug"))
+              .single()
+              .apply()
+              .get
+          }
+        })(_ => {
+          MessageEffect(RED.toString + "ガチャ券の受け取りに失敗しました")
+        })(Math.min(_, 64 * 9))
+      )
+      _ <- EitherT(
+        handleQueryError(Try {
+          DB.localTx { implicit session =>
+            sql"update $tableReference set numofsorryforbug = numofsorryforbug - $numberToGrant where uuid = '$uuid'"
+          }
+        })(_ => {
+          MessageEffect(RED.toString + "ガチャ券の受け取りに失敗しました")
+        })(_ => ())
+      )
     } yield numberToGrant
 
-    program.unsafeRunSync()
+    program.value.unsafeRunSync()
   }
 
   @inline private def ifCoolDownDoneThenGet(player: Player, playerdata: PlayerData)(supplier: => Int): Int = {

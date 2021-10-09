@@ -439,19 +439,19 @@ object FirstPage extends Menu {
             // よって配布処理はすべてバックエンドと協調しながら行わなければならない。
             val numberOfItemsToGive = SeichiAssist.databaseGateway.playerDataManipulator.givePlayerBug(player)
 
-            if (numberOfItemsToGive > 0) {
+            numberOfItemsToGive.map(num => if (num > 0) {
               val itemToGive = GachaSkullData.gachaFromAdministrator
-              val itemStacksToGive = Seq.fill(numberOfItemsToGive)(itemToGive)
+              val itemStacksToGive = Seq.fill(num)(itemToGive)
 
               SequentialEffect(
                 Util.grantItemStacksEffect(itemStacksToGive: _*),
                 UnfocusedEffect {
-                  playerData.unclaimedApologyItems -= numberOfItemsToGive
+                  playerData.unclaimedApologyItems -= num
                 },
                 FocusedSoundEffect(Sound.BLOCK_ANVIL_PLACE, 1.0f, 1.0f),
-                MessageEffect(s"${GREEN}運営チームから${numberOfItemsToGive}枚の${GOLD}ガチャ券${WHITE}を受け取りました")
+                MessageEffect(s"${GREEN}運営チームから${num}枚の${GOLD}ガチャ券${WHITE}を受け取りました")
               )
-            } else emptyEffect
+            } else emptyEffect).merge
           } else emptyEffect
         }))
       )
