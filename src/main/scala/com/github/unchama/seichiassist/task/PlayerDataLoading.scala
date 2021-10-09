@@ -4,7 +4,6 @@ import cats.effect.{IO, Sync}
 import com.github.unchama.seichiassist.data.GridTemplate
 import com.github.unchama.seichiassist.data.player._
 import com.github.unchama.seichiassist.data.player.settings.BroadcastMutingSettings
-import com.github.unchama.seichiassist.database.DatabaseConstants
 import com.github.unchama.seichiassist.minestack.MineStackObj
 import com.github.unchama.seichiassist.seichiskill.effect.ActiveSkillEffect.NoEffect
 import com.github.unchama.seichiassist.seichiskill.effect.{ActiveSkillNormalEffect, ActiveSkillPremiumEffect, UnlockableActiveSkillEffect}
@@ -40,7 +39,7 @@ object PlayerDataLoading {
     def updateLoginInfoF[F[_] : Sync]: F[Unit] = Sync[F].delay {
       DB.localTx { implicit session =>
         sql"""
-              |UPDATE $databaseName.${DatabaseConstants.PLAYERDATA_TABLENAME}
+              |UPDATE $databaseName.playerdata
               |SET loginflag = TRUE,
               |lastquit = CAST(now() as DATETIME)
               |WHERE uuid = $stringUuid""".stripMargin
@@ -63,7 +62,7 @@ object PlayerDataLoading {
 
       val entriesInDB = DB.readOnly { implicit session =>
         sql"""
-             |SELECT * FROM $databaseName.${DatabaseConstants.MINESTACK_TABLENAME}
+             |SELECT * FROM $databaseName.minestack
              |WHERE player_uuid = $stringUuid""".stripMargin
           .map(rs => {
             val name = rs.string("object_name")
@@ -96,7 +95,7 @@ object PlayerDataLoading {
       DB.readOnly { implicit session =>
         sql"""
              |SELECT id, ahead_length, behind_length, right_length, left_length
-             |FROM $databaseName.${DatabaseConstants.GRID_TEMPLATE_TABLENAME}
+             |FROM $databaseName.grid_template
              |WHERE designer_uuid = $stringUuid""".stripMargin
           .map { rs =>
             val id = rs.int("id")
@@ -123,7 +122,7 @@ object PlayerDataLoading {
       DB.readOnly { implicit session =>
         sql"""
              |SELECT effect_name
-             |FROM $databaseName.${DatabaseConstants.SKILL_EFFECT_TABLENAME}
+             |FROM $databaseName.unlocked_active_skill_effect
              |WHERE player_uuid = $stringUuid""".stripMargin
           .map { rs =>
             val name = rs.string("effect_name")
@@ -173,7 +172,7 @@ object PlayerDataLoading {
         // すべてのカラムを列挙すると保守性とのトレードオフで分が悪くなるのでこれはこのままにしておいたほうが良さそう
         sql"""
              |SELECT *
-             |FROM $databaseName.${DatabaseConstants.PLAYERDATA_TABLENAME}
+             |FROM $databaseName.playerdata
              |WHERE uuid = $stringUuid
              |""".stripMargin
           .map { rs =>

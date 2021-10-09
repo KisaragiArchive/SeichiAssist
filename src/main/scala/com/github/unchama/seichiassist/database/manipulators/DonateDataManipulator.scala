@@ -3,7 +3,7 @@ package com.github.unchama.seichiassist.database.manipulators
 import cats.effect.IO
 import com.github.unchama.generic.effect.SyncExtra
 import com.github.unchama.seichiassist.database.manipulators.DonateDataManipulator.{Obtained, PremiumPointTransaction, Used}
-import com.github.unchama.seichiassist.database.{DatabaseConstants, DatabaseGateway}
+import com.github.unchama.seichiassist.database.DatabaseGateway
 import com.github.unchama.seichiassist.seichiskill.effect.ActiveSkillPremiumEffect
 import com.github.unchama.util.ActionStatus
 import org.bukkit.entity.Player
@@ -12,7 +12,7 @@ class DonateDataManipulator(private val gateway: DatabaseGateway) {
 
   import com.github.unchama.util.syntax.ResultSetSyntax._
 
-  private def tableReference: String = s"${gateway.databaseName}.${DatabaseConstants.DONATEDATA_TABLENAME}"
+  private def tableReference: String = s"${gateway.databaseName}.donatedata"
 
   def recordPremiumEffectPurchase(player: Player, effect: ActiveSkillPremiumEffect): IO[ActionStatus] = {
     val command =

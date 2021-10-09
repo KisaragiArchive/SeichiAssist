@@ -7,7 +7,7 @@ import com.github.unchama.contextualexecutor.builder.ResponseEffectOrResult
 import com.github.unchama.seichiassist.SeichiAssist
 import com.github.unchama.seichiassist.data.RankData
 import com.github.unchama.seichiassist.data.player.PlayerData
-import com.github.unchama.seichiassist.database.{DatabaseConstants, DatabaseGateway}
+import com.github.unchama.seichiassist.database.DatabaseGateway
 import com.github.unchama.seichiassist.task.{CoolDownTask, PlayerDataLoading}
 import com.github.unchama.seichiassist.util.BukkitSerialization
 import com.github.unchama.targetedeffect.TargetedEffect
@@ -51,7 +51,7 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
 
   private val plugin = SeichiAssist.instance
 
-  private val tableReference: String = s"${gateway.databaseName}.${DatabaseConstants.PLAYERDATA_TABLENAME}"
+  private val tableReference: String = s"${gateway.databaseName}.playerdata"
 
   /**
    * 投票特典配布時の処理(p_givenvoteの値の更新もココ)
@@ -479,7 +479,7 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
   }
 
   def loadPlayerData(playerUUID: UUID, playerName: String): PlayerData = {
-    val table = DatabaseConstants.PLAYERDATA_TABLENAME
+    val table = "playerdata"
     val db = SeichiAssist.seichiAssistConfig.getDB
 
     // TODO: これは外部キーを設定する際の妨げになる。計算コストの無駄なのでやめるべき。

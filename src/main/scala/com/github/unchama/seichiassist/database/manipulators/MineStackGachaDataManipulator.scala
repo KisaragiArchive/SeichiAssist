@@ -5,7 +5,7 @@ import java.sql.SQLException
 
 import com.github.unchama.seichiassist.SeichiAssist
 import com.github.unchama.seichiassist.data.MineStackGachaData
-import com.github.unchama.seichiassist.database.{DatabaseConstants, DatabaseGateway}
+import com.github.unchama.seichiassist.database.DatabaseGateway
 import com.github.unchama.seichiassist.util.BukkitSerialization
 import com.github.unchama.util.ActionStatus
 import org.bukkit.Bukkit
@@ -16,7 +16,7 @@ class MineStackGachaDataManipulator(private val gateway: DatabaseGateway) {
 
   import com.github.unchama.util.syntax.ResultSetSyntax._
 
-  private val tableReference: String = gateway.databaseName + "." + DatabaseConstants.MINESTACK_GACHADATA_TABLENAME
+  private val tableReference: String = gateway.databaseName + "." + "msgachadata"
 
   //MineStack用ガチャデータロード
   def loadMineStackGachaData(): Boolean = {
