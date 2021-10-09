@@ -2,6 +2,7 @@ package com.github.unchama.seichiassist.database.manipulators
 
 import cats.data.EitherT
 import cats.effect.IO
+import cats.implicits._
 import com.github.unchama.contextualexecutor.builder.ResponseEffectOrResult
 import com.github.unchama.seichiassist.SeichiAssist
 import com.github.unchama.seichiassist.data.RankData
@@ -23,8 +24,28 @@ import java.sql.SQLException
 import java.text.SimpleDateFormat
 import java.util.{Calendar, UUID}
 import scala.collection.mutable
+import scala.util.Try
 
 class PlayerDataManipulator(private val gateway: DatabaseGateway) {
+  // TODO: tableReferenceを埋め込んでいるが、これはscalikejdbcだと文脈を考慮せずにクォートでくくられる。インライン展開して死滅させるべき
+  // NOTE: has multiple argument lists because of type inference does not working well in Scala 2.
+  private def handleQueryError2[A, L, R](tryStruct: Try[A],
+                                         onSQLException: SQLException => L,
+                                         onSuccess: A => R): Either[L, R] = {
+    tryStruct.toEither.fold({
+      case e: SQLException =>
+        println("sqlクエリの実行に失敗しました。以下にエラーを表示します")
+        e.printStackTrace()
+        Left(onSQLException(e))
+      case e => throw e
+    }, a => Right(onSuccess(a)))
+  }
+
+  private def handleQueryError[A, L, R](tryStruct: Try[A])
+                                       (onSQLException: SQLException => L)
+                                       (onSuccess: A => R): IO[Either[L, R]] = {
+    IO(handleQueryError2(tryStruct, onSQLException, onSuccess))
+  }
 
   import com.github.unchama.util.syntax.ResultSetSyntax._
 
@@ -32,77 +53,88 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
 
   private val tableReference: String = s"${gateway.databaseName}.${DatabaseConstants.PLAYERDATA_TABLENAME}"
 
-  //投票特典配布時の処理(p_givenvoteの値の更新もココ)
+  /**
+   * 投票特典配布時の処理(p_givenvoteの値の更新もココ)
+   */
   def compareVotePoint(player: Player, playerdata: PlayerData): Int = {
+    /*
+      TODO: ifCoolDownThenGetは単なる時間差分である。わざわざPlayerDataに依存する必要はない。
+        これをぶっ潰したあとにUUIDを受け取れば十分なのでそれで代用するべき。
+     */
     ifCoolDownDoneThenGet(player, playerdata) {
       val struuid = playerdata.uuid.toString
 
-      var p_vote = 0
-      var p_givenvote = 0
-
-      var command = s"select p_vote,p_givenvote from $tableReference where uuid = '$struuid'"
-      try {
-        gateway.executeQuery(command).recordIteration { lrs =>
-          p_vote = lrs.getInt("p_vote")
-          p_givenvote = lrs.getInt("p_givenvote")
+      val program = for {
+        a <- handleQueryError(
+          Try {
+            DB.readOnly { implicit session =>
+              sql"select p_vote,p_givenvote from $tableReference where uuid = $struuid"
+                .map { rs =>
+                  (rs.int("p_vote"), rs.int("p_givenvote"))
+                }
+                .single()
+                .apply()
+                .get
+            }
+          })(
+          _ => {
+            player.sendMessage(RED.toString + "投票特典の受け取りに失敗しました")
+            return 0
+          })(identity)
+        (p_vote, p_givenvote) = a.merge
+        rest <- if (p_vote > p_givenvote) {
+          val e = handleQueryError(
+            Try {
+              DB.localTx { implicit session =>
+                sql"""update $tableReference set p_givenvote = $p_vote where uuid = $struuid"""
+                  .update()
+                  .apply()
+              }
+            })(_ => {
+            player.sendMessage(RED.toString + "投票特典の受け取りに失敗しました")
+            0
+          })(_ => p_vote - p_givenvote)
+          e.map(_.merge)
+        } else IO {
+          player.sendMessage(YELLOW.toString + "投票特典は全て受け取り済みのようです")
+          0
         }
-      } catch {
-        case e: SQLException =>
-          println("sqlクエリの実行に失敗しました。以下にエラーを表示します")
-          e.printStackTrace()
-          player.sendMessage(RED.toString + "投票特典の受け取りに失敗しました")
-          return 0
-      }
+      } yield rest
 
-      //比較して差があればその差の値を返す(同時にp_givenvoteも更新しておく)
-      if (p_vote > p_givenvote) {
-        command = ("update " + tableReference
-          + " set p_givenvote = " + p_vote
-          + s" where uuid = '$struuid'")
-        if (gateway.executeUpdate(command) == ActionStatus.Fail) {
-          player.sendMessage(RED.toString + "投票特典の受け取りに失敗しました")
-          return 0
-        }
-
-        return p_vote - p_givenvote
-      }
-      player.sendMessage(YELLOW.toString + "投票特典は全て受け取り済みのようです")
-      0
+      program.unsafeRunSync()
     }
   }
 
-  //最新のnumofsorryforbug値を返してmysqlのnumofsorrybug値を初期化する処理
+  /**
+   * 最新のnumofsorryforbug値を返してmysqlのnumofsorrybug値を初期化する処理
+   */
   def givePlayerBug(player: Player): Int = {
     val uuid = player.getUniqueId.toString
-    val numberToGrant = {
-      val command = s"select numofsorryforbug from $tableReference where uuid = '$uuid'"
-      val rawMaximum =
-        try {
-          gateway.executeQuery(command)
-            .recordIteration { _.getInt("numofsorryforbug") }
-            .head
-        } catch { case e: Exception =>
-          println("sqlクエリの実行に失敗しました。以下にエラーを表示します")
-          e.printStackTrace()
-          player.sendMessage(RED.toString + "ガチャ券の受け取りに失敗しました")
-          return 0
+    val program = for {
+      aw <- handleQueryError(Try {
+        DB.readOnly { implicit session =>
+          sql"select numofsorryforbug from $tableReference where uuid = $uuid"
+            .map(rs => rs.int("numofsorryforbug"))
+            .single()
+            .apply()
+            .get
         }
-
-      Math.min(rawMaximum, 576)
-    }
-
-    {
-      val updateCommand =
-        s"update $tableReference " +
-          s"set numofsorryforbug = numofsorryforbug - $numberToGrant where uuid = '$uuid'"
-
-      if (gateway.executeUpdate(updateCommand) == ActionStatus.Fail) {
+      })(_ => {
         player.sendMessage(RED.toString + "ガチャ券の受け取りに失敗しました")
         return 0
-      }
-    }
+      })(Math.min(_, 64 * 9))
+      numberToGrant = aw.merge
+      _ <- handleQueryError(Try {
+        DB.localTx { implicit session =>
+          sql"update $tableReference set numofsorryforbug = numofsorryforbug - $numberToGrant where uuid = '$uuid'"
+        }
+      })(_ => {
+        player.sendMessage(RED.toString + "ガチャ券の受け取りに失敗しました")
+        return 0
+      })(_ => ())
+    } yield numberToGrant
 
-    numberToGrant
+    program.unsafeRunSync()
   }
 
   @inline private def ifCoolDownDoneThenGet(player: Player, playerdata: PlayerData)(supplier: => Int): Int = {
@@ -117,7 +149,7 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
   }
 
   /**
-   * 投票ポイントをインクリメントするメソッド。
+   * 永続化層において投票ポイントをインクリメントする。
    *
    * @param playerName プレーヤー名
    */
@@ -129,33 +161,36 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
     }
   }
 
-  //指定されたプレイヤーにガチャ券を送信する
+  /**
+   * 指定されたプレイヤーに運営からのお詫びガチャ券を加算する。
+   *
+   */
   def addPlayerBug(playerName: String, num: Int): ActionStatus = {
-    val command = ("update " + tableReference
-      + " set numofsorryforbug = numofsorryforbug + " + num
-      + s" where name = '$playerName'")
-
-    gateway.executeUpdate(command)
+    handleQueryError(Try {
+      DB.localTx { implicit session =>
+        sql"update $tableReference set numofsorryforbug = numofsorryforbug + $num where name = '$playerName'"
+          .update()
+          .apply()
+      }
+    })(_ => ActionStatus.Fail)(_ => ActionStatus.Ok)
+      .map(_.merge)
+      .unsafeRunSync()
   }
 
-  def addChainVote(name: String): Boolean =
+  def addChainVote(name: String): Boolean = {
+    val calendar = Calendar.getInstance()
+    val dateFormat = new SimpleDateFormat("yyyy/MM/dd")
     DB.localTx { implicit session =>
-      val calendar = Calendar.getInstance()
-      val dateFormat = new SimpleDateFormat("yyyy/MM/dd")
-
-      val lastVote = {
-        val readLastVote =
-          sql"SELECT lastvote FROM playerdata WHERE name = $name"
-            .map(_.string("lastvote"))
-            .headOption()
-            .apply()
-            .getOrElse(return false)
-
-        if (readLastVote == null || readLastVote == "")
-          dateFormat.format(calendar.getTime)
-        else
-          readLastVote
-      }
+      val readLastVote =
+        sql"SELECT lastvote FROM playerdata WHERE name = $name"
+          .map(_.string("lastvote"))
+          .headOption()
+          .apply()
+          .getOrElse(return false)
+      val lastVote = if (readLastVote == null || readLastVote == "")
+        dateFormat.format(calendar.getTime)
+      else
+        readLastVote
 
       sql"UPDATE playerdata SET lastvote = ${dateFormat.format(calendar.getTime)} WHERE name = $name"
         .update().apply()
@@ -176,8 +211,11 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
       } else 1
 
       sql"""update playerdata set chainvote = $newCount where name = $name"""
+        .update()
+        .apply()
       true
     }
+  }
 
   /**
    * 全プレイヤーのanniversaryフラグを変更する。
@@ -185,12 +223,11 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
    * @return 変更が成功したならtrue、変更に失敗したならfalse
    */
   def setAnniversaryGlobally(anniversary: Boolean): Boolean = {
-    scala.util.Try {
-      sql"""UPDATE $tableReference SET anniversary = $anniversary""".update()
-    }.toEither.fold(_ => {
-      Bukkit.getLogger.warning("sql failed. => setAnniversaryGlobally")
-      false
-    }, _ => true)
+    handleQueryError(Try {
+      DB.localTx { implicit session =>
+        sql"""UPDATE $tableReference SET anniversary = $anniversary""".update().apply()
+      }
+    })(_ => false)(_ => true).map(_.merge).unsafeRunSync()
   }
 
   def saveSharedInventory(player: Player, serializedInventory: String): IO[ResponseEffectOrResult[Player, Unit]] = {
@@ -205,37 +242,39 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
         }
       } yield ()
 
-    val writeInventoryData = IO {
-      // シリアル化されたインベントリデータを書き込む
-      val updateCommand = s"UPDATE $tableReference SET shareinv = '$serializedInventory' WHERE uuid = '${player.getUniqueId}'"
-
-      if (gateway.executeUpdate(updateCommand) == ActionStatus.Fail) {
-        Bukkit.getLogger.warning(s"${player.getName} database failure.")
-        Left(MessageEffect(s"${RED}アイテムの収納に失敗しました"))
-      } else {
-        Right(())
+    val writeInventoryData = handleQueryError(Try {
+      DB.localTx { implicit session =>
+        sql"""
+             |UPDATE $tableReference SET shareinv = $serializedInventory WHERE uuid = ${player.getUniqueId}
+        """.stripMargin
+          .update()
+          .apply()
       }
-    }
+    })(_ => MessageEffect(s"${RED}アイテムの格納に失敗しました"))(_ => ())
 
     for {
       _ <- EitherT(checkInventoryOperationCoolDown(player))
       _ <- assertSharedInventoryBeEmpty
       _ <- EitherT(writeInventoryData)
     } yield ()
-    }.value
+  }.value
 
   def loadShareInv(player: Player): IO[ResponseEffectOrResult[CommandSender, String]] = {
     val loadInventoryData: IO[Either[Nothing, String]] = EitherT.right(IO {
-      val command = s"SELECT shareinv FROM $tableReference WHERE uuid = '${player.getUniqueId}'"
-
-      gateway.executeQuery(command).recordIteration(_.getString("shareinv")).headOption.get
+      DB.readOnly { implicit session =>
+        sql"""SELECT shareinv FROM $tableReference WHERE uuid = ${player.getUniqueId}"""
+          .map(rs => rs.string("shareinv"))
+          .single()
+          .apply()
+          .get
+      }
     }).value
 
     for {
       _ <- EitherT(checkInventoryOperationCoolDown(player))
       serializedInventory <- EitherT(catchingDatabaseErrors(player.getName, loadInventoryData))
     } yield serializedInventory
-    }.value
+  }.value
 
   private def catchingDatabaseErrors[R](targetName: String,
                                         program: IO[Either[TargetedEffect[CommandSender], R]]): IO[Either[TargetedEffect[CommandSender], R]] = {
@@ -263,39 +302,37 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
     }
   }
 
-  def clearShareInv(player: Player, playerdata: PlayerData): IO[ResponseEffectOrResult[CommandSender, Unit]] = IO {
-    val command = s"UPDATE $tableReference SET shareinv = '' WHERE uuid = '${playerdata.uuid}'"
-
-    if (gateway.executeUpdate(command) == ActionStatus.Fail) {
-      Bukkit.getLogger.warning(s"${player.getName} sql failed. => clearShareInv")
-      Left(MessageEffect(s"${RED}アイテムのクリアに失敗しました"))
-    } else
-      Right(())
+  def clearSharedInventory(uuid: UUID): IO[ResponseEffectOrResult[CommandSender, Unit]] = {
+    handleQueryError(Try {
+      DB.localTx { implicit session =>
+        sql"""UPDATE $tableReference SET shareinv = '' WHERE uuid = $uuid"""
+          .update()
+          .apply()
+      }
+    })(_ => MessageEffect(s"${RED}アイテムのクリアに失敗しました"))(_ => ())
   }
 
-  // TODO IO-nize
-  def selectLeaversUUIDs(days: Int): List[UUID] = {
-    val command = s"select name, uuid from $tableReference " +
-      s"where ((lastquit <= date_sub(curdate(), interval $days day)) " +
-      "or (lastquit is null)) and (name != '') and (uuid != '')"
-    val uuidList = mutable.ArrayBuffer[UUID]()
-
-    try {
-      gateway.executeQuery(command).recordIteration { lrs =>
-        try {
-          uuidList += UUID.fromString(lrs.getString("uuid"))
-        } catch {
-          case _: IllegalArgumentException =>
-            println(s"不適切なUUID: ${lrs.getString("name")}: ${lrs.getString("uuid")}")
+  def selectLeaversUUIDs(days: Int): IO[Either[SQLException, List[UUID]]] = {
+    // FIXME: そもそも不適切な入力が認められるならば例外を握りつぶさずに上へ持っていくべき。
+    handleQueryError(Try {
+      DB.readOnly { implicit session =>
+        sql"""
+             |select name, uuid
+             |from $tableReference
+             |where (
+               |(lastquit <= date_sub(curdate(), interval $days day))
+               |or (lastquit is null)
+             |)
+             |and (name != '')
+             |and (uuid != '')""".stripMargin.map { rs =>
+          // TODO: 前のコミットではUUIDの構築に失敗したときIllegalArgumentExceptionの説明のために
+          //       nameカラムをセレクトしていたが、これは本当に必要なのだろうか？
+          rs.string("uuid")
         }
+          .list()
+          .apply()
       }
-    } catch {
-      case e: SQLException =>
-        println("sqlクエリの実行に失敗しました。以下にエラーを表示します")
-        e.printStackTrace()
-        return null
-    }
-    uuidList.toList
+    })(identity)(list => list.map(UUID.fromString))
   }
 
   /**
@@ -312,23 +349,27 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
 
   //ランキング表示用にプレイ時間のカラムだけ全員分引っ張る
   private def successPlayTickRankingUpdate(): Boolean = {
-    val ranklist = mutable.ArrayBuffer[RankData]()
-    val command = ("select name,playtick from " + tableReference
-      + " order by playtick desc")
-    try {
-      gateway.executeQuery(command).recordIteration { lrs =>
-        val rankdata = new RankData()
-        rankdata.name = lrs.getString("name")
-        rankdata.playtick = lrs.getInt("playtick")
-        ranklist += rankdata
-      }
-    } catch {
-      case e: SQLException =>
-        println("sqlクエリの実行に失敗しました。以下にエラーを表示します")
-        e.printStackTrace()
-        return false
-    }
+    val ranklist = handleQueryError2(
+      Try {
+        DB.readOnly { implicit session =>
+          sql"""select name,playtick from $tableReference order by playtick desc"""
+            .map(rs => {
+              import scala.util.chaining._
+              new RankData()
+                .tap(_.name = rs.string("name"))
+                .tap(_.playtick = rs.int("playtick"))
+            })
+            .toList()
+            .apply()
+        }
+      },
+      _ => return false,
+      // NOTE: type inference issue
+      identity[List[RankData]]
+    )
+      .merge
 
+    // TODO: 初期化時に一度だけ生成してオンラインのときはin-placeで更新するべきでは？
     SeichiAssist.ranklist_playtick.clear()
     SeichiAssist.ranklist_playtick.addAll(ranklist)
     true
@@ -336,22 +377,23 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
 
   //ランキング表示用に投票数のカラムだけ全員分引っ張る
   private def successVoteRankingUpdate(): Boolean = {
-    val ranklist = mutable.ArrayBuffer[RankData]()
-    val command = ("select name,p_vote from " + tableReference
-      + " order by p_vote desc")
-    try {
-      gateway.executeQuery(command).recordIteration { lrs =>
-        val rankdata = new RankData()
-        rankdata.name = lrs.getString("name")
-        rankdata.p_vote = lrs.getInt("p_vote")
-        ranklist += rankdata
-      }
-    } catch {
-      case e: SQLException =>
-        println("sqlクエリの実行に失敗しました。以下にエラーを表示します")
-        e.printStackTrace()
-        return false
-    }
+    val ranklist = handleQueryError2(
+      Try {
+        DB.readOnly { implicit session =>
+          sql"""select name,p_vote from $tableReference order by p_vote desc"""
+            .map(rs => {
+              import scala.util.chaining._
+              new RankData()
+                .tap(_.name = rs.string("name"))
+                .tap(_.playtick = rs.int("p_vote"))
+            })
+            .list()
+            .apply()
+        }
+      },
+      _ => return false,
+      identity[List[RankData]]
+    ).merge
 
     SeichiAssist.ranklist_p_vote.clear()
     SeichiAssist.ranklist_p_vote.addAll(ranklist)
@@ -384,31 +426,41 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
   }
 
   //全員に詫びガチャの配布
+  // TODO: use Either
   def addAllPlayerBug(amount: Int): ActionStatus = {
-    val command = s"update $tableReference set numofsorryforbug = numofsorryforbug + $amount"
-    gateway.executeUpdate(command)
+    handleQueryError(Try {
+      DB.localTx { implicit session =>
+        sql"update $tableReference set numofsorryforbug = numofsorryforbug + $amount"
+          .update()
+          .apply()
+      }
+    })(_ => ActionStatus.Fail)(_ => ActionStatus.Ok).map(_.merge).unsafeRunSync()
   }
 
+  // TODO: BC breaksメモ: DBアクセスに失敗した場合はそれを引きずらずに例外を投げるようにした。
   def selectPocketInventoryOf(uuid: UUID): IO[ResponseEffectOrResult[CommandSender, Inventory]] = {
-    val command = s"select inventory from $tableReference where uuid = '$uuid'"
-
-    val executeQuery = IO {
-      gateway.executeQuery(command).recordIteration { lrs =>
-        BukkitSerialization.fromBase64(lrs.getString("inventory"))
-      }.head
-    }
-
-    catchingDatabaseErrors(uuid.toString, EitherT.right(executeQuery).value)
+    handleQueryError(Try {
+      DB.readOnly { implicit session =>
+        sql"select inventory from $tableReference where uuid = $uuid"
+          .map(rs => BukkitSerialization.fromBase64(rs.string("inventory")))
+          .single()
+          .apply()
+      }
+        .get
+    })(a => throw new AssertionError("It must not be happen", a))(a => a)
   }
 
+  // FIXME: deprecated parameter: use UUID
   def inquireLastQuitOf(playerName: String): IO[TargetedEffect[CommandSender]] = {
-    val fetchLastQuitData: IO[ResponseEffectOrResult[CommandSender, String]] = EitherT.right(IO {
-      val command = s"select lastquit from $tableReference where name = '$playerName'"
-
-      gateway.executeQuery(command)
-        .recordIteration(_.getString("lastquit"))
-        .head
-    }).value
+    val fetchLastQuitData = handleQueryError(Try {
+      DB.readOnly { implicit session =>
+        sql"select lastquit from $tableReference where name = $playerName"
+          .map(rs => rs.string("lastquit"))
+          .single()
+          .apply()
+      }
+        .get
+    })(a => throw new AssertionError("It must not be happen", a))(a => a)
 
     catchingDatabaseErrors(playerName, fetchLastQuitData).map {
       case Left(errorEffect) =>
@@ -427,37 +479,36 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
   }
 
   def loadPlayerData(playerUUID: UUID, playerName: String): PlayerData = {
-    val databaseGateway = SeichiAssist.databaseGateway
     val table = DatabaseConstants.PLAYERDATA_TABLENAME
     val db = SeichiAssist.seichiAssistConfig.getDB
 
-    //sqlコネクションチェック
-    databaseGateway.ensureConnection()
-
-    //同ステートメントだとmysqlの処理がバッティングした時に止まってしまうので別ステートメントを作成する
-    val stmt = databaseGateway.con.createStatement()
-
-    val stringUuid: String = playerUUID.toString.toLowerCase()
+    // TODO: これは外部キーを設定する際の妨げになる。計算コストの無駄なのでやめるべき。
+    val stringUuid = playerUUID.toString.toLowerCase()
 
     //uuidがsqlデータ内に存在するか検索
-    val count = {
-      val command = s"select count(*) as count from $db.$table where uuid = '$stringUuid'"
-
-      stmt.executeQuery(command).recordIteration(_.getInt("count")).headOption
-    }
+    val count = DB.readOnly { implicit session =>
+      sql"""SELECT COUNT(*) as count FROM $db.$table WHERE uuid = $stringUuid"""
+        .map(rs => rs.int("count"))
+        .single()
+        .apply()
+    }.get
 
     count match {
-      case Some(0) =>
-        //uuidが存在しない時
+      case 0 =>
         SeichiAssist.instance.getLogger.info(s"$YELLOW${playerName}は完全初見です。プレイヤーデータを作成します")
 
-        //新しくuuidとnameを設定し行を作成
-        val command = s"insert into $db.$table (name,uuid,loginflag) values('$playerName','$stringUuid','1')"
-        stmt.executeUpdate(command)
+        DB.localTx { implicit session =>
+          sql"insert into $db.$table (name,uuid,loginflag) values($playerName, $stringUuid, '1')"
+            .update()
+            .apply()
+        }
 
         new PlayerData(playerUUID, playerName)
-      case _ =>
+      case 1 =>
         PlayerDataLoading.loadExistingPlayerData(playerUUID, playerName)
+
+      // カウントは非負整数。かつ、異なる2人以上のプレイヤーが同じUUIDを持っていることは (論理上) 考えられないので、0と1以外の
+      // ケースを考慮する必要がない。
     }
   }
 }
