@@ -479,7 +479,6 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
   }
 
   def loadPlayerData(playerUUID: UUID, playerName: String): PlayerData = {
-    val table = "playerdata"
     val db = SeichiAssist.seichiAssistConfig.getDB
 
     // TODO: これは外部キーを設定する際の妨げになる。計算コストの無駄なのでやめるべき。
@@ -487,7 +486,7 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
 
     //uuidがsqlデータ内に存在するか検索
     val count = DB.readOnly { implicit session =>
-      sql"""SELECT COUNT(*) as count FROM $db.$table WHERE uuid = $stringUuid"""
+      sql"SELECT COUNT(*) as count FROM $db.playerdata WHERE uuid = $stringUuid"
         .map(rs => rs.int("count"))
         .single()
         .apply()
@@ -498,7 +497,7 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
         SeichiAssist.instance.getLogger.info(s"$YELLOW${playerName}は完全初見です。プレイヤーデータを作成します")
 
         DB.localTx { implicit session =>
-          sql"insert into $db.$table (name,uuid,loginflag) values($playerName, $stringUuid, '1')"
+          sql"insert into $db.playerdata (name,uuid,loginflag) values($playerName, $stringUuid, '1')"
             .update()
             .apply()
         }
