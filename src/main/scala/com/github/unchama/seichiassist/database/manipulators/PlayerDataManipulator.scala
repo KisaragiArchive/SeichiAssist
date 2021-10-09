@@ -162,6 +162,8 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
     }
   }
 
+  //FIXME: please use UUID instead of player's name whenever possible!!!!!!!!!!!!
+
   /**
    * 指定されたプレイヤーに運営からのお詫びガチャ券を加算する。
    *
@@ -403,26 +405,37 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
 
   //ランキング表示用に上げたりんご数のカラムだけ全員分引っ張る
   private def successAppleNumberRankingUpdate(): Boolean = {
-    val ranklist = mutable.ArrayBuffer[RankData]()
-    SeichiAssist.allplayergiveapplelong = 0
-    val command = s"select name,p_apple from $tableReference order by p_apple desc"
-    try {
-      gateway.executeQuery(command).recordIteration { lrs =>
-        val rankdata = new RankData()
-        rankdata.name = lrs.getString("name")
-        rankdata.p_apple = lrs.getInt("p_apple")
-        ranklist += rankdata
-        SeichiAssist.allplayergiveapplelong += rankdata.p_apple.toLong
-      }
-    } catch {
-      case e: SQLException =>
-        println("sqlクエリの実行に失敗しました。以下にエラーを表示します")
-        e.printStackTrace()
-        return false
+    val program = for {
+      list <- handleQueryError(Try {
+        DB.readOnly { implicit session =>
+          sql"select name,p_apple from $tableReference order by p_apple desc"
+            .map(rs => {
+              import scala.util.chaining._
+
+              new RankData()
+                .tap(_.name = rs.string("name"))
+                .tap(_.p_apple = rs.int("p_apple"))
+            })
+            .list()
+            .apply()
+        }
+      })(_ => return false)(identity[List[RankData]])
+      sum <- handleQueryError(Try {
+        DB.readOnly { implicit session =>
+          sql"""SELECT SUM(p_apple) as sum FROM $tableReference"""
+            .map(rs => rs.long("sum"))
+            .single()
+            .apply()
+            .get
+        }
+      })(_ => return false)(identity[Long])
+    } yield {
+      SeichiAssist.ranklist_p_apple.clear()
+      SeichiAssist.ranklist_p_apple.addAll(list.merge)
+      SeichiAssist.allplayergiveapplelong = sum.merge
     }
 
-    SeichiAssist.ranklist_p_apple.clear()
-    SeichiAssist.ranklist_p_apple.addAll(ranklist)
+    program.unsafeRunSync()
     true
   }
 
