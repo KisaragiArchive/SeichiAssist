@@ -127,7 +127,7 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
       _ <- EitherT(
         handleQueryError(Try {
           DB.localTx { implicit session =>
-            sql"update $tableReference set numofsorryforbug = numofsorryforbug - $numberToGrant where uuid = '$uuid'"
+            sql"update $tableReference set numofsorryforbug = numofsorryforbug - $numberToGrant where uuid = $uuid"
           }
         })(_ => {
           MessageEffect(RED.toString + "ガチャ券の受け取りに失敗しました")
