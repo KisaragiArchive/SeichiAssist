@@ -1,79 +1,93 @@
 package com.github.unchama.seichiassist.database.manipulators
 
-import java.io.IOException
-import java.sql.SQLException
-
+import cats.effect.IO
 import com.github.unchama.seichiassist.SeichiAssist
 import com.github.unchama.seichiassist.data.MineStackGachaData
 import com.github.unchama.seichiassist.database.DatabaseGateway
 import com.github.unchama.seichiassist.util.BukkitSerialization
-import com.github.unchama.util.ActionStatus
 import org.bukkit.Bukkit
+import scalikejdbc._
 
-import scala.collection.mutable.ArrayBuffer
+import java.sql.SQLException
+import scala.collection.Seq.iterableFactory
+import scala.util.Try
 
 class MineStackGachaDataManipulator(private val gateway: DatabaseGateway) {
-
-  import com.github.unchama.util.syntax.ResultSetSyntax._
-
-  private val tableReference: String = gateway.databaseName + "." + "msgachadata"
-
-  //MineStack用ガチャデータロード
-  def loadMineStackGachaData(): Boolean = {
-    val gachadatalist = ArrayBuffer[MineStackGachaData]()
-
-    val command = s"select * from $tableReference"
-    try {
-      gateway.executeQuery(command).recordIteration { lrs =>
-        val savedInventory = BukkitSerialization.fromBase64(lrs.getString("itemstack"))
-        val itemStack = savedInventory.getItem(0)
-
-        val gachaData = new MineStackGachaData(
-          lrs.getString("obj_name"), itemStack, lrs.getDouble("probability"), lrs.getInt("level")
-        )
-
-        gachadatalist += gachaData
-      }
-    } catch {
-      case e@(_: SQLException | _: IOException) =>
+  private def handleQueryError2[A, L, R](tryStruct: Try[A],
+                                         onSQLException: SQLException => L,
+                                         onSuccess: A => R): Either[L, R] = {
+    tryStruct.toEither.fold({
+      case e: SQLException =>
         println("sqlクエリの実行に失敗しました。以下にエラーを表示します")
         e.printStackTrace()
-        return false
-    }
+        Left(onSQLException(e))
+      case e => throw e
+    }, a => Right(onSuccess(a)))
+  }
 
-    SeichiAssist.msgachadatalist.clear()
-    SeichiAssist.msgachadatalist.addAll(gachadatalist)
-    true
+  // TODO: こいつは1つのItemStackを逐一シリアライズしておけば十分なのでストレージ面での節約が見込まれる。というかそうするべき
+
+  private val tableReference: String = s"${gateway.databaseName}.msgachadata"
+
+  def loadMineStackGachaDataIO: IO[Either[RuntimeException, List[MineStackGachaData]]] = IO {
+    handleQueryError2(
+      Try {
+        DB.readOnly { implicit session =>
+          sql"""SELECT * FROM $tableReference"""
+            .map { rs =>
+              val savedInventory = BukkitSerialization.fromBase64(rs.string("itemstack"))
+              val itemStack = savedInventory.getItem(0)
+
+              new MineStackGachaData(
+                rs.string("obj_name"),
+                itemStack,
+                rs.double("probability"),
+                rs.int("level")
+              )
+            }
+        }
+      },
+      e => new RuntimeException("FATAL: MineStack用ガチャデータのロードに失敗しました。", e),
+      identity[List[MineStackGachaData]]
+    )
   }
 
   //MineStack用ガチャデータセーブ
+  @deprecated("please use saveMineStackGachaDataIO")
   def saveMineStackGachaData(): Boolean = {
+    saveMineStackGachaDataIO.unsafeRunSync().isRight
+  }
+
+  def saveMineStackGachaDataIO: IO[Either[RuntimeException, Unit]] = IO {
+    handleQueryError2(
+      Try {
+        DB.localTx { implicit session =>
+          sql"""truncate table $tableReference"""
+            .update()
+            .apply()
+
+          import scala.util.chaining._
+
+          val params = SeichiAssist.msgachadatalist.toSeq.map(item =>
+            Seq(
+              item.probability,
+              item.level,
+              item.objName,
+              BukkitSerialization.toBase64(
+                Bukkit.getServer.createInventory(null, 9 * 1)
+                  .tap(inv => inv.setItem(0, item.itemStack))
+              )
+            )
+          )
 
 
-    //まずmysqlのガチャテーブルを初期化(中身全削除)
-    var command = s"truncate table $tableReference"
-    if (gateway.executeUpdate(command) == ActionStatus.Fail) {
-      return false
-    }
-
-    //次に現在のgachadatalistでmysqlを更新
-    for {gachadata <- SeichiAssist.msgachadatalist} {
-      //Inventory作ってガチャのitemstackに突っ込む
-      val inventory = Bukkit.getServer.createInventory(null, 9 * 1)
-      inventory.setItem(0, gachadata.itemStack)
-
-      command = ("insert into " + tableReference + " (probability,level,obj_name,itemstack)"
-        + " values"
-        + "(" + gachadata.probability
-        + "," + gachadata.level
-        + ",'" + gachadata.objName + "'"
-        + ",'" + BukkitSerialization.toBase64(inventory) + "'"
-        + ")")
-
-      if (gateway.executeUpdate(command) == ActionStatus.Fail) {
-        return false
-      }
-    }
-    true
+          sql"""insert into $tableReference (probability,level,obj_name,itemstack) values (?, ?, ?, ?)"""
+            .batch(params: _*)
+            .apply()
+        }
+      },
+      e => new RuntimeException("FATAL: マインスタックのセーブに失敗しました", e),
+      (a: Unit) => ()
+    )
   }
 }

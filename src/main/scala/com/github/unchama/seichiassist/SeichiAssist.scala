@@ -468,9 +468,14 @@ class SeichiAssist extends JavaPlugin() {
     }
 
     //mysqlからMineStack用ガチャデータ読み込み
-    if (!SeichiAssist.databaseGateway.mineStackGachaDataManipulator.loadMineStackGachaData()) {
-      throw new Exception("MineStack用ガチャデータのロードに失敗しました。サーバーを停止します…")
-    }
+    SeichiAssist.databaseGateway.mineStackGachaDataManipulator.loadMineStackGachaDataIO.map {
+      case Left(e) => throw new Exception("サーバーを停止します…", e)
+      case Right(value) =>
+        SeichiAssist.msgachadatalist.clear()
+        SeichiAssist.msgachadatalist.addAll(value)
+
+        ()
+    }.unsafeRunSync()
 
     import PluginExecutionContexts._
     implicit val breakCountApi: BreakCountAPI[IO, SyncIO, Player] = breakCountSystem.api
