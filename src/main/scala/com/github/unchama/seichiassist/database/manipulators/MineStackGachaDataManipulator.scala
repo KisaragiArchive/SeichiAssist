@@ -8,29 +8,17 @@ import com.github.unchama.seichiassist.util.BukkitSerialization
 import org.bukkit.Bukkit
 import scalikejdbc._
 
-import java.sql.SQLException
 import scala.collection.Seq.iterableFactory
 import scala.util.Try
 
 class MineStackGachaDataManipulator(private val gateway: DatabaseGateway) {
-  private def handleQueryError2[A, L, R](tryStruct: Try[A],
-                                         onSQLException: SQLException => L,
-                                         onSuccess: A => R): Either[L, R] = {
-    tryStruct.toEither.fold({
-      case e: SQLException =>
-        println("sqlクエリの実行に失敗しました。以下にエラーを表示します")
-        e.printStackTrace()
-        Left(onSQLException(e))
-      case e => throw e
-    }, a => Right(onSuccess(a)))
-  }
 
   // TODO: こいつは1つのItemStackを逐一シリアライズしておけば十分なのでストレージ面での節約が見込まれる。というかそうするべき
 
   private val tableReference: String = s"${gateway.databaseName}.msgachadata"
 
   def loadMineStackGachaDataIO: IO[Either[RuntimeException, List[MineStackGachaData]]] = IO {
-    handleQueryError2(
+    DatabaseRoutines.handleQueryError2(
       Try {
         DB.readOnly { implicit session =>
           sql"""SELECT * FROM $tableReference"""

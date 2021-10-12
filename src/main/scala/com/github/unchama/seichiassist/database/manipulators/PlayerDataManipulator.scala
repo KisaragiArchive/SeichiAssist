@@ -8,6 +8,7 @@ import com.github.unchama.seichiassist.SeichiAssist
 import com.github.unchama.seichiassist.data.RankData
 import com.github.unchama.seichiassist.data.player.PlayerData
 import com.github.unchama.seichiassist.database.DatabaseGateway
+import com.github.unchama.seichiassist.database.manipulators.DatabaseRoutines.handleQueryError2
 import com.github.unchama.seichiassist.task.{CoolDownTask, PlayerDataLoading}
 import com.github.unchama.seichiassist.util.BukkitSerialization
 import com.github.unchama.targetedeffect.TargetedEffect
@@ -28,18 +29,6 @@ import scala.util.Try
 
 class PlayerDataManipulator(private val gateway: DatabaseGateway) {
   // TODO: tableReferenceを埋め込んでいるが、これはscalikejdbcだと文脈を考慮せずにクォートでくくられる。インライン展開して死滅させるべき
-  // NOTE: has multiple argument lists because of type inference does not working well in Scala 2.
-  private def handleQueryError2[A, L, R](tryStruct: Try[A],
-                                         onSQLException: SQLException => L,
-                                         onSuccess: A => R): Either[L, R] = {
-    tryStruct.toEither.fold({
-      case e: SQLException =>
-        println("sqlクエリの実行に失敗しました。以下にエラーを表示します")
-        e.printStackTrace()
-        Left(onSQLException(e))
-      case e => throw e
-    }, a => Right(onSuccess(a)))
-  }
 
   private def handleQueryError[A, L, R](tryStruct: Try[A])
                                        (onSQLException: SQLException => L)
