@@ -7,57 +7,75 @@ import com.github.unchama.seichiassist.database.DatabaseGateway
 import com.github.unchama.seichiassist.seichiskill.effect.ActiveSkillPremiumEffect
 import com.github.unchama.util.ActionStatus
 import org.bukkit.entity.Player
+import scalikejdbc._
+
+import scala.util.Try
 
 class DonateDataManipulator(private val gateway: DatabaseGateway) {
-
-  import com.github.unchama.util.syntax.ResultSetSyntax._
-
   private def tableReference: String = s"${gateway.databaseName}.donatedata"
 
-  def recordPremiumEffectPurchase(player: Player, effect: ActiveSkillPremiumEffect): IO[ActionStatus] = {
-    val command =
-      s"insert into $tableReference (playername,playeruuid,effectname,usepoint,date) " +
-        s"value('${player.getName}','${player.getUniqueId.toString}','${effect.entryName}',${effect.usePoint},cast(now() as datetime))"
+  def recordPremiumEffectPurchase(player: Player, effect: ActiveSkillPremiumEffect): IO[ActionStatus] = IO {
 
-    IO { gateway.executeUpdate(command) }
+    DatabaseRoutines.handleQueryError2(Try {
+      DB.localTx { implicit session =>
+        sql"""insert into $tableReference
+             |(playername, playeruuid, effectname, usepoint, date)
+             |values (
+             |${player.getName},
+             |${player.getUniqueId.toString},
+             |${effect.entryName},
+             |${effect.usePoint},
+             |cast(now() as datetime)
+             |)""".stripMargin
+          .update()
+          .apply()
+      }
+    }, _ => ActionStatus.Fail, (_: Unit) => ActionStatus.Ok).merge
   }
 
   def addDonate(name: String, point: Int): ActionStatus = {
-    val command = ("insert into " + tableReference
-      + " (playername,getpoint,date) "
-      + "value("
-      + "'" + name + "',"
-      + point + ","
-      + "cast( now() as datetime )"
-      + ")")
-    gateway.executeUpdate(command)
+    DatabaseRoutines.handleQueryError2(Try {
+      DB.localTx { implicit session =>
+        sql"""insert into $tableReference (playername,getpoint,date) values
+             |(
+             |'$name',
+             |$point,
+             |cast( now() as datetime )
+             |)""".stripMargin
+          .update()
+          .apply()
+      }
+    }, _ => ActionStatus.Fail, (_: Unit) => ActionStatus.Ok).merge
   }
 
-  def loadTransactionHistoryFor(player: Player): IO[List[PremiumPointTransaction]] = {
-    val command = s"select * from $tableReference where playername like '${player.getName}'"
+  def loadTransactionHistoryFor(player: Player): IO[List[PremiumPointTransaction]] = IO {
+    import cats.implicits._
 
-    SyncExtra.recoverWithStackTrace(
-      "プレミアムエフェクト購入のトランザクション履歴の読み込みに失敗しました。",
-      List(),
-      IO {
-        gateway.executeQuery(command).recordIteration { lrs =>
-          //ポイント購入の処理
-          val getPoint = lrs.getInt("getpoint")
-          val usePoint = lrs.getInt("usepoint")
-          val date = lrs.getString("date")
+    DatabaseRoutines.handleQueryError2(
+      Try {
+        DB.readOnly { implicit session =>
+          // ※プレイヤー名は完全一致探索で十分
+          sql"""select * from $tableReference where playername = ${player.getName}"""
+            .map { rs =>
+              val getTotal = rs.int("getpoint")
+              val useTotal = rs.int("usepoint")
+              val date = rs.string("date")
 
-          if (getPoint > 0) {
-            Obtained(getPoint, date)
-          } else if (usePoint > 0) {
-            val effectName = lrs.getString("effectname")
-            val nameOrEffect = ActiveSkillPremiumEffect.withNameOption(effectName).toRight(effectName)
-            Used(usePoint, date, nameOrEffect)
-          } else {
-            throw new IllegalStateException("usepointまたはgetpointが正である必要があります")
-          }
+              Option.when(getTotal > 0) {
+                Obtained(getTotal, date)
+              } orElse Option.when(useTotal > 0) {
+                val effectName = rs.string("effectname")
+                val nameOrEffect = ActiveSkillPremiumEffect.withNameOption(effectName).toRight(effectName)
+                Used(useTotal, date, nameOrEffect)
+              }
+            }
+            .list()
+            .apply()
         }
-      }
-    )
+      },
+      throw _,
+      (a: List[Option[PremiumPointTransaction]]) => a.sequence.getOrElse(Nil)
+    ).merge
   }
 
   def currentPremiumPointFor(player: Player): IO[Int] = {
