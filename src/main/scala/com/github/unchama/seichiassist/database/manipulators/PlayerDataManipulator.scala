@@ -8,7 +8,7 @@ import com.github.unchama.seichiassist.SeichiAssist
 import com.github.unchama.seichiassist.data.RankData
 import com.github.unchama.seichiassist.data.player.PlayerData
 import com.github.unchama.seichiassist.database.DatabaseGateway
-import com.github.unchama.seichiassist.database.manipulators.DatabaseRoutines.handleQueryError2
+import com.github.unchama.seichiassist.database.manipulators.DatabaseRoutines.{handleQueryError2, handleQueryError3}
 import com.github.unchama.seichiassist.task.{CoolDownTask, PlayerDataLoading}
 import com.github.unchama.seichiassist.util.BukkitSerialization
 import com.github.unchama.targetedeffect.TargetedEffect
@@ -24,19 +24,10 @@ import scalikejdbc.{DB, scalikejdbcSQLInterpolationImplicitDef}
 import java.sql.SQLException
 import java.text.SimpleDateFormat
 import java.util.{Calendar, UUID}
-import scala.collection.mutable
 import scala.util.Try
 
 class PlayerDataManipulator(private val gateway: DatabaseGateway) {
   // TODO: tableReferenceを埋め込んでいるが、これはscalikejdbcだと文脈を考慮せずにクォートでくくられる。インライン展開して死滅させるべき
-
-  private def handleQueryError[A, L, R](tryStruct: Try[A])
-                                       (onSQLException: SQLException => L)
-                                       (onSuccess: A => R): IO[Either[L, R]] = {
-    IO(handleQueryError2(tryStruct, onSQLException, onSuccess))
-  }
-
-  import com.github.unchama.util.syntax.ResultSetSyntax._
 
   private val plugin = SeichiAssist.instance
 
@@ -54,35 +45,34 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
       val struuid = playerdata.uuid.toString
 
       val program = for {
-        a <- handleQueryError(
-          Try {
-            DB.readOnly { implicit session =>
-              sql"select p_vote,p_givenvote from $tableReference where uuid = $struuid"
-                .map { rs =>
-                  (rs.int("p_vote"), rs.int("p_givenvote"))
-                }
-                .single()
-                .apply()
-                .get
-            }
-          })(
+        a <- handleQueryError3(
+          DB.readOnly { implicit session =>
+            sql"select p_vote,p_givenvote from $tableReference where uuid = $struuid"
+              .map { rs =>
+                (rs.int("p_vote"), rs.int("p_givenvote"))
+              }
+              .single()
+              .apply()
+              .get
+          },
           _ => {
             player.sendMessage(RED.toString + "投票特典の受け取りに失敗しました")
             return 0
           })(identity)
         (p_vote, p_givenvote) = a.merge
         rest <- if (p_vote > p_givenvote) {
-          val e = handleQueryError(
-            Try {
+          val e = handleQueryError3(
+            {
               DB.localTx { implicit session =>
                 sql"""update $tableReference set p_givenvote = $p_vote where uuid = $struuid"""
                   .update()
                   .apply()
               }
-            })(_ => {
-            player.sendMessage(RED.toString + "投票特典の受け取りに失敗しました")
-            0
-          })(_ => p_vote - p_givenvote)
+            },
+            _ => {
+              player.sendMessage(RED.toString + "投票特典の受け取りに失敗しました")
+              0
+            })(_ => p_vote - p_givenvote)
           e.map(_.merge)
         } else IO {
           player.sendMessage(YELLOW.toString + "投票特典は全て受け取り済みのようです")
@@ -101,7 +91,8 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
     val uuid = player.getUniqueId.toString
     val program = for {
       numberToGrant <- EitherT(
-        handleQueryError(Try {
+        handleQueryError3(
+          {
           DB.readOnly { implicit session =>
             sql"select numofsorryforbug from $tableReference where uuid = $uuid"
               .map(rs => rs.int("numofsorryforbug"))
@@ -109,16 +100,16 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
               .apply()
               .get
           }
-        })(_ => {
+        }, _ => {
           MessageEffect(RED.toString + "ガチャ券の受け取りに失敗しました")
         })(Math.min(_, 64 * 9))
       )
       _ <- EitherT(
-        handleQueryError(Try {
+        handleQueryError3({
           DB.localTx { implicit session =>
             sql"update $tableReference set numofsorryforbug = numofsorryforbug - $numberToGrant where uuid = $uuid"
           }
-        })(_ => {
+        }, _ => {
           MessageEffect(RED.toString + "ガチャ券の受け取りに失敗しました")
         })(_ => ())
       )
@@ -158,13 +149,13 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
    *
    */
   def addPlayerBug(playerName: String, num: Int): ActionStatus = {
-    handleQueryError(Try {
+    handleQueryError3(Try {
       DB.localTx { implicit session =>
         sql"update $tableReference set numofsorryforbug = numofsorryforbug + $num where name = '$playerName'"
           .update()
           .apply()
       }
-    })(_ => ActionStatus.Fail)(_ => ActionStatus.Ok)
+    }, _ => ActionStatus.Fail)(_ => ActionStatus.Ok)
       .map(_.merge)
       .unsafeRunSync()
   }
@@ -215,11 +206,11 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
    * @return 変更が成功したならtrue、変更に失敗したならfalse
    */
   def setAnniversaryGlobally(anniversary: Boolean): Boolean = {
-    handleQueryError(Try {
+    handleQueryError3(Try {
       DB.localTx { implicit session =>
         sql"""UPDATE $tableReference SET anniversary = $anniversary""".update().apply()
       }
-    })(_ => false)(_ => true).map(_.merge).unsafeRunSync()
+    }, _ => false)(_ => true).map(_.merge).unsafeRunSync()
   }
 
   def saveSharedInventory(player: Player, serializedInventory: String): IO[ResponseEffectOrResult[Player, Unit]] = {
@@ -234,7 +225,7 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
         }
       } yield ()
 
-    val writeInventoryData = handleQueryError(Try {
+    val writeInventoryData = handleQueryError3(Try {
       DB.localTx { implicit session =>
         sql"""
              |UPDATE $tableReference SET shareinv = $serializedInventory WHERE uuid = ${player.getUniqueId}
@@ -242,7 +233,7 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
           .update()
           .apply()
       }
-    })(_ => MessageEffect(s"${RED}アイテムの格納に失敗しました"))(_ => ())
+    }, _ => MessageEffect(s"${RED}アイテムの格納に失敗しました"))(_ => ())
 
     for {
       _ <- EitherT(checkInventoryOperationCoolDown(player))
@@ -295,18 +286,18 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
   }
 
   def clearSharedInventory(uuid: UUID): IO[ResponseEffectOrResult[CommandSender, Unit]] = {
-    handleQueryError(Try {
+    handleQueryError3(Try {
       DB.localTx { implicit session =>
         sql"""UPDATE $tableReference SET shareinv = '' WHERE uuid = $uuid"""
           .update()
           .apply()
       }
-    })(_ => MessageEffect(s"${RED}アイテムのクリアに失敗しました"))(_ => ())
+    }, _ => MessageEffect(s"${RED}アイテムのクリアに失敗しました"))(_ => ())
   }
 
   def selectLeaversUUIDs(days: Int): IO[Either[SQLException, List[UUID]]] = {
     // FIXME: そもそも不適切な入力が認められるならば例外を握りつぶさずに上へ持っていくべき。
-    handleQueryError(Try {
+    handleQueryError3({
       DB.readOnly { implicit session =>
         sql"""
              |select name, uuid
@@ -324,7 +315,7 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
           .list()
           .apply()
       }
-    })(identity)(list => list.map(UUID.fromString))
+    }, identity)(list => list.map(UUID.fromString))
   }
 
   /**
@@ -341,8 +332,8 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
 
   //ランキング表示用にプレイ時間のカラムだけ全員分引っ張る
   private def successPlayTickRankingUpdate(): Boolean = {
-    val ranklist = handleQueryError2(
-      Try {
+    val ranklist = handleQueryError3(
+      {
         DB.readOnly { implicit session =>
           sql"""select name,playtick from $tableReference order by playtick desc"""
             .map(rs => {
@@ -355,22 +346,18 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
             .apply()
         }
       },
-      _ => return false,
-      // NOTE: type inference issue
-      identity[List[RankData]]
-    )
-      .merge
+      _ => return false)(identity).unsafeRunSync()
 
     // TODO: 初期化時に一度だけ生成してオンラインのときはin-placeで更新するべきでは？
     SeichiAssist.ranklist_playtick.clear()
-    SeichiAssist.ranklist_playtick.addAll(ranklist)
+    SeichiAssist.ranklist_playtick.addAll(ranklist.merge)
     true
   }
 
   //ランキング表示用に投票数のカラムだけ全員分引っ張る
   private def successVoteRankingUpdate(): Boolean = {
-    val ranklist = handleQueryError2(
-      Try {
+    val ranklist = handleQueryError3(
+      {
         DB.readOnly { implicit session =>
           sql"""select name,p_vote from $tableReference order by p_vote desc"""
             .map(rs => {
@@ -383,19 +370,18 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
             .apply()
         }
       },
-      _ => return false,
-      identity[List[RankData]]
-    ).merge
+      _ => return false)(identity
+    ).unsafeRunSync()
 
     SeichiAssist.ranklist_p_vote.clear()
-    SeichiAssist.ranklist_p_vote.addAll(ranklist)
+    SeichiAssist.ranklist_p_vote.addAll(ranklist.merge)
     true
   }
 
   //ランキング表示用に上げたりんご数のカラムだけ全員分引っ張る
   private def successAppleNumberRankingUpdate(): Boolean = {
     val program = for {
-      list <- handleQueryError(Try {
+      list <- handleQueryError3({
         DB.readOnly { implicit session =>
           sql"select name,p_apple from $tableReference order by p_apple desc"
             .map(rs => {
@@ -408,8 +394,8 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
             .list()
             .apply()
         }
-      })(_ => return false)(identity[List[RankData]])
-      sum <- handleQueryError(Try {
+      }, _ => return false)(identity)
+      sum <- handleQueryError3({
         DB.readOnly { implicit session =>
           sql"""SELECT SUM(p_apple) as sum FROM $tableReference"""
             .map(rs => rs.long("sum"))
@@ -417,7 +403,7 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
             .apply()
             .get
         }
-      })(_ => return false)(identity[Long])
+      }, _ => return false)(identity)
     } yield {
       SeichiAssist.ranklist_p_apple.clear()
       SeichiAssist.ranklist_p_apple.addAll(list.merge)
@@ -431,18 +417,18 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
   //全員に詫びガチャの配布
   // TODO: use Either
   def addAllPlayerBug(amount: Int): ActionStatus = {
-    handleQueryError(Try {
+    handleQueryError3({
       DB.localTx { implicit session =>
         sql"update $tableReference set numofsorryforbug = numofsorryforbug + $amount"
           .update()
           .apply()
       }
-    })(_ => ActionStatus.Fail)(_ => ActionStatus.Ok).map(_.merge).unsafeRunSync()
+    }, _ => ActionStatus.Fail)(_ => ActionStatus.Ok).map(_.merge).unsafeRunSync()
   }
 
   // TODO: BC breaksメモ: DBアクセスに失敗した場合はそれを引きずらずに例外を投げるようにした。
   def selectPocketInventoryOf(uuid: UUID): IO[ResponseEffectOrResult[CommandSender, Inventory]] = {
-    handleQueryError(Try {
+    handleQueryError3({
       DB.readOnly { implicit session =>
         sql"select inventory from $tableReference where uuid = $uuid"
           .map(rs => BukkitSerialization.fromBase64(rs.string("inventory")))
@@ -450,12 +436,11 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
           .apply()
       }
         .get
-    })(a => throw new AssertionError("It must not be happen", a))(a => a)
+    }, a => throw new AssertionError("It must not be happen", a))(identity)
   }
 
-  // FIXME: deprecated parameter: use UUID
   def inquireLastQuitOf(playerName: String): IO[TargetedEffect[CommandSender]] = {
-    val fetchLastQuitData = handleQueryError(Try {
+    val fetchLastQuitData = handleQueryError3({
       DB.readOnly { implicit session =>
         sql"select lastquit from $tableReference where name = $playerName"
           .map(rs => rs.string("lastquit"))
@@ -463,7 +448,7 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
           .apply()
       }
         .get
-    })(a => throw new AssertionError("It must not be happen", a))(a => a)
+    }, a => throw new AssertionError("It must not be happen", a))(identity)
 
     catchingDatabaseErrors(playerName, fetchLastQuitData).map {
       case Left(errorEffect) =>
