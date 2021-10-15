@@ -87,10 +87,10 @@ public class DatabaseGateway {
     }
 
     /**
-     * 接続正常ならOk、そうでなければ再接続試行後正常でOk、だめならFailを返す
+     * コネクションの確認及び復旧を試みる
+     * @throws RuntimeException 処理中にSQLExceptionがthrowされたとき
      */
-    // TODO このメソッドの戻り値はどこにも使われていない。異常系はその状態を引きずらずに処理を止めるべき
-    public ActionStatus ensureConnection() {
+    public void ensureConnection() {
         try {
             if (con.isClosed()) {
                 plugin.getLogger().warning("sqlConnectionクローズを検出。再接続試行");
@@ -101,19 +101,8 @@ public class DatabaseGateway {
                 stmt = con.createStatement();
             }
         } catch (SQLException e) {
-            e.printStackTrace();
-            //イクセプションった時に接続再試行
-            plugin.getLogger().warning("sqlExceptionを検出。再接続試行");
-            if (establishMySQLConnection() == Ok) {
-                plugin.getLogger().info("sqlコネクション正常");
-                return Ok;
-            } else {
-                plugin.getLogger().warning("sqlコネクション不良を検出");
-                return Fail;
-            }
+            throw new RuntimeException(e);
         }
-
-        return Ok;
     }
 
     /**
