@@ -26,7 +26,7 @@ import java.text.SimpleDateFormat
 import java.util.{Calendar, UUID}
 import scala.util.Try
 
-class PlayerDataManipulator(private val gateway: DatabaseGateway) {
+class PlayerDataManipulator {
   // TODO: tableReferenceを埋め込んでいるが、これはscalikejdbcだと文脈を考慮せずにクォートでくくられる。インライン展開して死滅させるべき
 
   private val plugin = SeichiAssist.instance

@@ -11,7 +11,7 @@ import scalikejdbc._
 import scala.collection.Seq.iterableFactory
 import scala.util.Try
 
-class MineStackGachaDataManipulator(private val gateway: DatabaseGateway) {
+class MineStackGachaDataManipulator {
 
   // TODO: こいつは1つのItemStackを逐一シリアライズしておけば十分なのでストレージ面での節約が見込まれる。というかそうするべき
 

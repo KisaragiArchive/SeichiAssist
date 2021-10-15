@@ -45,10 +45,10 @@ public class DatabaseGateway {
         this.loginId = loginId;
         this.password = password;
 
-        this.playerDataManipulator = new PlayerDataManipulator(this);
-        this.gachaDataManipulator = new GachaDataManipulator(this);
-        this.mineStackGachaDataManipulator = new MineStackGachaDataManipulator(this);
-        this.donateDataManipulator = new DonateDataManipulator(this);
+        this.playerDataManipulator = new PlayerDataManipulator();
+        this.gachaDataManipulator = new GachaDataManipulator();
+        this.mineStackGachaDataManipulator = new MineStackGachaDataManipulator();
+        this.donateDataManipulator = new DonateDataManipulator();
     }
 
     public static DatabaseGateway createInitializedInstance(@NotNull String databaseUrl,
