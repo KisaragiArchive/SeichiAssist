@@ -12,7 +12,7 @@ import scalikejdbc._
 import scala.util.Try
 
 class DonateDataManipulator(private val gateway: DatabaseGateway) {
-  private def tableReference: String = s"${gateway.databaseName}.donatedata"
+  private def tableReference: String = s"seichiassist.donatedata"
 
   def recordPremiumEffectPurchase(player: Player, effect: ActiveSkillPremiumEffect): IO[ActionStatus] = IO {
 

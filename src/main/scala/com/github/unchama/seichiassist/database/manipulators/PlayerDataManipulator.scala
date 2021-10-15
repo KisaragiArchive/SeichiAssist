@@ -31,7 +31,7 @@ class PlayerDataManipulator(private val gateway: DatabaseGateway) {
 
   private val plugin = SeichiAssist.instance
 
-  private val tableReference: String = s"${gateway.databaseName}.playerdata"
+  private val tableReference: String = s"seichiassist.playerdata"
 
   /**
    * 投票特典配布時の処理(p_givenvoteの値の更新もココ)

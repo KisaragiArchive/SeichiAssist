@@ -23,7 +23,7 @@ public class DatabaseGateway {
     //TODO: 直接SQLに変数を連結しているが、順次PreparedStatementに置き換えていきたい
 
     public @NotNull
-    final String databaseName;
+    final String databaseName = "seichiassist";
     // TODO これらはこのクラスに入るべきではなさそう(プラグインクラスに入れるべき)
     public final PlayerDataManipulator playerDataManipulator;
     public final GachaDataManipulator gachaDataManipulator;
@@ -40,9 +40,8 @@ public class DatabaseGateway {
 
     private final SeichiAssist plugin = SeichiAssist.instance();
 
-    private DatabaseGateway(@NotNull String databaseUrl, @NotNull String databaseName, @NotNull String loginId, @NotNull String password) {
+    private DatabaseGateway(@NotNull String databaseUrl, @Deprecated @NotNull String databaseName, @NotNull String loginId, @NotNull String password) {
         this.databaseUrl = databaseUrl;
-        this.databaseName = databaseName;
         this.loginId = loginId;
         this.password = password;
 

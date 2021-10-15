@@ -11,7 +11,7 @@ import scalikejdbc._
 import scala.collection.Iterable.iterableFactory
 
 class GachaDataManipulator(private val gateway: DatabaseGateway) {
-  private val tableReference: String = gateway.databaseName + "." + "gachadata"
+  private val tableReference: String = "seichiassist.gachadata"
 
   //ガチャデータロード
   def loadGachaData(): Boolean = {

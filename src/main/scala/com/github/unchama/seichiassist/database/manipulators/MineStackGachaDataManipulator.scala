@@ -15,7 +15,7 @@ class MineStackGachaDataManipulator(private val gateway: DatabaseGateway) {
 
   // TODO: こいつは1つのItemStackを逐一シリアライズしておけば十分なのでストレージ面での節約が見込まれる。というかそうするべき
 
-  private val tableReference: String = s"${gateway.databaseName}.msgachadata"
+  private val tableReference: String = s"seichiassist.msgachadata"
 
   def loadMineStackGachaDataIO: IO[Either[RuntimeException, List[MineStackGachaData]]] = IO {
     DatabaseRoutines.handleQueryError2(
