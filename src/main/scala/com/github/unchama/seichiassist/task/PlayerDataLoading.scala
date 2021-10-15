@@ -64,12 +64,12 @@ object PlayerDataLoading {
         sql"""
              |SELECT * FROM $databaseName.minestack
              |WHERE player_uuid = $stringUuid""".stripMargin
-          .map(rs => {
+          .map{ rs =>
             val name = rs.string("object_name")
             val amount = rs.long("amount")
 
             name -> amount
-          })
+          }
           .toList()
           .apply()
           .toMap
