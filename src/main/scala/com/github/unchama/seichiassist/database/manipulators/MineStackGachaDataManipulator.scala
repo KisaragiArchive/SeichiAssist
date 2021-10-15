@@ -29,6 +29,8 @@ class MineStackGachaDataManipulator {
                 rs.int("level")
               )
             }
+            .list()
+            .apply()
         }
       },
       e => new RuntimeException("FATAL: MineStack用ガチャデータのロードに失敗しました。", e))(a => a)
