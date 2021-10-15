@@ -1,7 +1,6 @@
 package com.github.unchama.seichiassist.database.manipulators
 
 import cats.effect.IO
-import com.github.unchama.seichiassist.database.DatabaseGateway
 import com.github.unchama.seichiassist.database.manipulators.DonateDataManipulator.{Obtained, PremiumPointTransaction, Used}
 import com.github.unchama.seichiassist.seichiskill.effect.ActiveSkillPremiumEffect
 import com.github.unchama.util.ActionStatus
@@ -11,13 +10,11 @@ import scalikejdbc._
 import scala.util.Try
 
 class DonateDataManipulator {
-  private def tableReference: String = s"seichiassist.donatedata"
-
   def recordPremiumEffectPurchase(player: Player, effect: ActiveSkillPremiumEffect): IO[ActionStatus] = IO {
 
     DatabaseRoutines.handleQueryError2(Try {
       DB.localTx { implicit session =>
-        sql"""insert into $tableReference
+        sql"""insert into seichiassist.donatedata
              |(playername, playeruuid, effectname, usepoint, date)
              |values (
              |${player.getName},
@@ -35,7 +32,7 @@ class DonateDataManipulator {
   def addDonate(name: String, point: Int): ActionStatus = {
     DatabaseRoutines.handleQueryError2(Try {
       DB.localTx { implicit session =>
-        sql"""insert into $tableReference (playername,getpoint,date) values
+        sql"""insert into seichiassist.donatedata (playername,getpoint,date) values
              |(
              |'$name',
              |$point,
@@ -54,7 +51,7 @@ class DonateDataManipulator {
       Try {
         DB.readOnly { implicit session =>
           // ※プレイヤー名は完全一致探索で十分
-          sql"""select * from $tableReference where playername = ${player.getName}"""
+          sql"""select * from seichiassist.donatedata where playername = ${player.getName}"""
             .map { rs =>
               val getTotal = rs.int("getpoint")
               val useTotal = rs.int("usepoint")

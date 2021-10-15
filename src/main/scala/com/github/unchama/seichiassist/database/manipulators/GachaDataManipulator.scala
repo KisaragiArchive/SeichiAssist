@@ -3,7 +3,6 @@ package com.github.unchama.seichiassist.database.manipulators
 import cats.data.EitherT
 import com.github.unchama.seichiassist.SeichiAssist
 import com.github.unchama.seichiassist.data.GachaPrize
-import com.github.unchama.seichiassist.database.DatabaseGateway
 import com.github.unchama.seichiassist.util.BukkitSerialization
 import org.bukkit.Bukkit
 import scalikejdbc._
@@ -11,14 +10,12 @@ import scalikejdbc._
 import scala.collection.Iterable.iterableFactory
 
 class GachaDataManipulator {
-  private val tableReference: String = "seichiassist.gachadata"
-
   //ガチャデータロード
   def loadGachaData(): Boolean = {
     val a = DatabaseRoutines.handleQueryError3(
       {
         DB.readOnly { implicit session =>
-          sql"""select * from $tableReference"""
+          sql"""select * from seichiassist.gachadata"""
             .map { rs =>
               val restoredInventory = BukkitSerialization.fromBase64(rs.string("itemstack"))
               val restoredItemStack = restoredInventory.getItem(0)
@@ -42,7 +39,7 @@ class GachaDataManipulator {
       _ <- EitherT(
         DatabaseRoutines.handleQueryError3(
           DB.localTx { implicit session =>
-            sql"""truncate table $tableReference"""
+            sql"""truncate table seichiassist.gachadata"""
               .update()
               .apply()
           },
@@ -63,7 +60,7 @@ class GachaDataManipulator {
               )
             }
 
-            sql"""insert into $tableReference (probability, itemstack) values (?, ?)"""
+            sql"""insert into seichiassist.gachadata (probability, itemstack) values (?, ?)"""
               .batch(params)
               .apply()
           },

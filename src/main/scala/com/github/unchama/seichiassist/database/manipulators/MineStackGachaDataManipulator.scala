@@ -3,7 +3,6 @@ package com.github.unchama.seichiassist.database.manipulators
 import cats.effect.IO
 import com.github.unchama.seichiassist.SeichiAssist
 import com.github.unchama.seichiassist.data.MineStackGachaData
-import com.github.unchama.seichiassist.database.DatabaseGateway
 import com.github.unchama.seichiassist.util.BukkitSerialization
 import org.bukkit.Bukkit
 import scalikejdbc._
@@ -15,13 +14,11 @@ class MineStackGachaDataManipulator {
 
   // TODO: こいつは1つのItemStackを逐一シリアライズしておけば十分なのでストレージ面での節約が見込まれる。というかそうするべき
 
-  private val tableReference: String = s"seichiassist.msgachadata"
-
   def loadMineStackGachaDataIO: IO[Either[RuntimeException, List[MineStackGachaData]]] = IO {
     DatabaseRoutines.handleQueryError2(
       Try {
         DB.readOnly { implicit session =>
-          sql"""SELECT * FROM $tableReference"""
+          sql"""SELECT * FROM seichiassist.msgachadata"""
             .map { rs =>
               val savedInventory = BukkitSerialization.fromBase64(rs.string("itemstack"))
               val itemStack = savedInventory.getItem(0)
@@ -50,7 +47,7 @@ class MineStackGachaDataManipulator {
     handleQueryError2(
       Try {
         DB.localTx { implicit session =>
-          sql"""truncate table $tableReference"""
+          sql"""truncate table seichiassist.msgachadata"""
             .update()
             .apply()
 
@@ -69,7 +66,7 @@ class MineStackGachaDataManipulator {
           )
 
 
-          sql"""insert into $tableReference (probability,level,obj_name,itemstack) values (?, ?, ?, ?)"""
+          sql"""insert into seichiassist.msgachadata (probability,level,obj_name,itemstack) values (?, ?, ?, ?)"""
             .batch(params: _*)
             .apply()
         }

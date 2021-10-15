@@ -2,13 +2,11 @@ package com.github.unchama.seichiassist.database.manipulators
 
 import cats.data.EitherT
 import cats.effect.IO
-import cats.implicits._
 import com.github.unchama.contextualexecutor.builder.ResponseEffectOrResult
 import com.github.unchama.seichiassist.SeichiAssist
 import com.github.unchama.seichiassist.data.RankData
 import com.github.unchama.seichiassist.data.player.PlayerData
-import com.github.unchama.seichiassist.database.DatabaseGateway
-import com.github.unchama.seichiassist.database.manipulators.DatabaseRoutines.{handleQueryError2, handleQueryError3}
+import com.github.unchama.seichiassist.database.manipulators.DatabaseRoutines.handleQueryError3
 import com.github.unchama.seichiassist.task.{CoolDownTask, PlayerDataLoading}
 import com.github.unchama.seichiassist.util.BukkitSerialization
 import com.github.unchama.targetedeffect.TargetedEffect
@@ -47,7 +45,7 @@ class PlayerDataManipulator {
       val program = for {
         a <- handleQueryError3(
           DB.readOnly { implicit session =>
-            sql"select p_vote,p_givenvote from $tableReference where uuid = $struuid"
+            sql"select p_vote,p_givenvote from seichiassist.playerdata where uuid = $struuid"
               .map { rs =>
                 (rs.int("p_vote"), rs.int("p_givenvote"))
               }
@@ -64,7 +62,7 @@ class PlayerDataManipulator {
           val e = handleQueryError3(
             {
               DB.localTx { implicit session =>
-                sql"""update $tableReference set p_givenvote = $p_vote where uuid = $struuid"""
+                sql"""update seichiassist.playerdata set p_givenvote = $p_vote where uuid = $struuid"""
                   .update()
                   .apply()
               }
@@ -94,7 +92,7 @@ class PlayerDataManipulator {
         handleQueryError3(
           {
           DB.readOnly { implicit session =>
-            sql"select numofsorryforbug from $tableReference where uuid = $uuid"
+            sql"select numofsorryforbug from seichiassist.playerdata where uuid = $uuid"
               .map(rs => rs.int("numofsorryforbug"))
               .single()
               .apply()
@@ -107,7 +105,7 @@ class PlayerDataManipulator {
       _ <- EitherT(
         handleQueryError3({
           DB.localTx { implicit session =>
-            sql"update $tableReference set numofsorryforbug = numofsorryforbug - $numberToGrant where uuid = $uuid"
+            sql"update seichiassist.playerdata set numofsorryforbug = numofsorryforbug - $numberToGrant where uuid = $uuid"
           }
         }, _ => {
           MessageEffect(RED.toString + "ガチャ券の受け取りに失敗しました")
@@ -151,7 +149,7 @@ class PlayerDataManipulator {
   def addPlayerBug(playerName: String, num: Int): ActionStatus = {
     handleQueryError3(Try {
       DB.localTx { implicit session =>
-        sql"update $tableReference set numofsorryforbug = numofsorryforbug + $num where name = '$playerName'"
+        sql"update seichiassist.playerdata set numofsorryforbug = numofsorryforbug + $num where name = '$playerName'"
           .update()
           .apply()
       }
@@ -208,7 +206,7 @@ class PlayerDataManipulator {
   def setAnniversaryGlobally(anniversary: Boolean): Boolean = {
     handleQueryError3(Try {
       DB.localTx { implicit session =>
-        sql"""UPDATE $tableReference SET anniversary = $anniversary""".update().apply()
+        sql"""UPDATE seichiassist.playerdata SET anniversary = $anniversary""".update().apply()
       }
     }, _ => false)(_ => true).map(_.merge).unsafeRunSync()
   }
@@ -228,7 +226,7 @@ class PlayerDataManipulator {
     val writeInventoryData = handleQueryError3(Try {
       DB.localTx { implicit session =>
         sql"""
-             |UPDATE $tableReference SET shareinv = $serializedInventory WHERE uuid = ${player.getUniqueId}
+             |UPDATE seichiassist.playerdata SET shareinv = $serializedInventory WHERE uuid = ${player.getUniqueId}
         """.stripMargin
           .update()
           .apply()
@@ -245,7 +243,7 @@ class PlayerDataManipulator {
   def loadShareInv(player: Player): IO[ResponseEffectOrResult[CommandSender, String]] = {
     val loadInventoryData: IO[Either[Nothing, String]] = EitherT.right(IO {
       DB.readOnly { implicit session =>
-        sql"""SELECT shareinv FROM $tableReference WHERE uuid = ${player.getUniqueId}"""
+        sql"""SELECT shareinv FROM seichiassist.playerdata WHERE uuid = ${player.getUniqueId}"""
           .map(rs => rs.string("shareinv"))
           .single()
           .apply()
@@ -288,7 +286,7 @@ class PlayerDataManipulator {
   def clearSharedInventory(uuid: UUID): IO[ResponseEffectOrResult[CommandSender, Unit]] = {
     handleQueryError3(Try {
       DB.localTx { implicit session =>
-        sql"""UPDATE $tableReference SET shareinv = '' WHERE uuid = $uuid"""
+        sql"""UPDATE seichiassist.playerdata SET shareinv = '' WHERE uuid = $uuid"""
           .update()
           .apply()
       }
@@ -301,7 +299,7 @@ class PlayerDataManipulator {
       DB.readOnly { implicit session =>
         sql"""
              |select name, uuid
-             |from $tableReference
+             |from seichiassist.playerdata
              |where (
                |(lastquit <= date_sub(curdate(), interval $days day))
                |or (lastquit is null)
@@ -335,7 +333,7 @@ class PlayerDataManipulator {
     val ranklist = handleQueryError3(
       {
         DB.readOnly { implicit session =>
-          sql"""select name,playtick from $tableReference order by playtick desc"""
+          sql"""select name,playtick from seichiassist.playerdata order by playtick desc"""
             .map(rs => {
               import scala.util.chaining._
               new RankData()
@@ -359,7 +357,7 @@ class PlayerDataManipulator {
     val ranklist = handleQueryError3(
       {
         DB.readOnly { implicit session =>
-          sql"""select name,p_vote from $tableReference order by p_vote desc"""
+          sql"""select name,p_vote from seichiassist.playerdata order by p_vote desc"""
             .map(rs => {
               import scala.util.chaining._
               new RankData()
@@ -383,7 +381,7 @@ class PlayerDataManipulator {
     val program = for {
       list <- handleQueryError3({
         DB.readOnly { implicit session =>
-          sql"select name,p_apple from $tableReference order by p_apple desc"
+          sql"select name,p_apple from seichiassist.playerdata order by p_apple desc"
             .map(rs => {
               import scala.util.chaining._
 
@@ -397,7 +395,7 @@ class PlayerDataManipulator {
       }, _ => return false)(identity)
       sum <- handleQueryError3({
         DB.readOnly { implicit session =>
-          sql"""SELECT SUM(p_apple) as sum FROM $tableReference"""
+          sql"""SELECT SUM(p_apple) as sum FROM seichiassist.playerdata"""
             .map(rs => rs.long("sum"))
             .single()
             .apply()
@@ -419,7 +417,7 @@ class PlayerDataManipulator {
   def addAllPlayerBug(amount: Int): ActionStatus = {
     handleQueryError3({
       DB.localTx { implicit session =>
-        sql"update $tableReference set numofsorryforbug = numofsorryforbug + $amount"
+        sql"update seichiassist.playerdata set numofsorryforbug = numofsorryforbug + $amount"
           .update()
           .apply()
       }
@@ -430,7 +428,7 @@ class PlayerDataManipulator {
   def selectPocketInventoryOf(uuid: UUID): IO[ResponseEffectOrResult[CommandSender, Inventory]] = {
     handleQueryError3({
       DB.readOnly { implicit session =>
-        sql"select inventory from $tableReference where uuid = $uuid"
+        sql"select inventory from seichiassist.playerdata where uuid = $uuid"
           .map(rs => BukkitSerialization.fromBase64(rs.string("inventory")))
           .single()
           .apply()
@@ -442,7 +440,7 @@ class PlayerDataManipulator {
   def inquireLastQuitOf(playerName: String): IO[TargetedEffect[CommandSender]] = {
     val fetchLastQuitData = handleQueryError3({
       DB.readOnly { implicit session =>
-        sql"select lastquit from $tableReference where name = $playerName"
+        sql"select lastquit from seichiassist.playerdata where name = $playerName"
           .map(rs => rs.string("lastquit"))
           .single()
           .apply()
