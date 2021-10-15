@@ -567,7 +567,7 @@ class SeichiAssist extends JavaPlugin() {
     }
 
     //ランキングリストを最新情報に更新する
-    if (!SeichiAssist.databaseGateway.playerDataManipulator.successRankingUpdate()) {
+    if (!SeichiAssist.databaseGateway.playerDataManipulator.updateRankingIO.unsafeRunSync()) {
       throw new RuntimeException("ランキングデータの作成に失敗しました。サーバーを停止します…")
     }
 

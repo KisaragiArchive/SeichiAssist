@@ -25,11 +25,7 @@ import java.util.{Calendar, UUID}
 import scala.util.Try
 
 class PlayerDataManipulator {
-  // TODO: tableReferenceを埋め込んでいるが、これはscalikejdbcだと文脈を考慮せずにクォートでくくられる。インライン展開して死滅させるべき
-
   private val plugin = SeichiAssist.instance
-
-  private val tableReference: String = s"seichiassist.playerdata"
 
   /**
    * 投票特典配布時の処理(p_givenvoteの値の更新もココ)
@@ -91,16 +87,16 @@ class PlayerDataManipulator {
       numberToGrant <- EitherT(
         handleQueryError3(
           {
-          DB.readOnly { implicit session =>
-            sql"select numofsorryforbug from seichiassist.playerdata where uuid = $uuid"
-              .map(rs => rs.int("numofsorryforbug"))
-              .single()
-              .apply()
-              .get
-          }
-        }, _ => {
-          MessageEffect(RED.toString + "ガチャ券の受け取りに失敗しました")
-        })(Math.min(_, 64 * 9))
+            DB.readOnly { implicit session =>
+              sql"select numofsorryforbug from seichiassist.playerdata where uuid = $uuid"
+                .map(rs => rs.int("numofsorryforbug"))
+                .single()
+                .apply()
+                .get
+            }
+          }, _ => {
+            MessageEffect(RED.toString + "ガチャ券の受け取りに失敗しました")
+          })(Math.min(_, 64 * 9))
       )
       _ <- EitherT(
         handleQueryError3({
@@ -200,6 +196,7 @@ class PlayerDataManipulator {
 
   /**
    * 全プレイヤーのanniversaryフラグを変更する。
+   *
    * @param anniversary 変更する値
    * @return 変更が成功したならtrue、変更に失敗したならfalse
    */
@@ -301,8 +298,8 @@ class PlayerDataManipulator {
              |select name, uuid
              |from seichiassist.playerdata
              |where (
-               |(lastquit <= date_sub(curdate(), interval $days day))
-               |or (lastquit is null)
+             |(lastquit <= date_sub(curdate(), interval $days day))
+             |or (lastquit is null)
              |)
              |and (name != '')
              |and (uuid != '')""".stripMargin.map { rs =>
@@ -316,84 +313,98 @@ class PlayerDataManipulator {
     }, identity)(list => list.map(UUID.fromString))
   }
 
-  /**
-   * 全ランキングリストの更新処理
-   *
-   * @return 成否…true: 成功、false: 失敗
-   *         TODO この処理はDB上と通信を行う為非同期にすべき
-   */
-  def successRankingUpdate(): Boolean = {
-    if (!successPlayTickRankingUpdate()) return false
-    if (!successVoteRankingUpdate()) return false
-    successAppleNumberRankingUpdate()
+  def updateRankingIO: IO[Boolean] = {
+    import cats.implicits._
+    import com.github.unchama.seichiassist.concurrent.PluginExecutionContexts.asyncShift
+
+    val ioFalse = IO.pure(false)
+    Seq(
+      updatePlayTimeRanking,
+      updateVoteCountRanking,
+      updateAppleNumberRanking
+    ).fold(asyncShift.shift.as(true)) { case (acc, e) =>
+      acc.ifM(e, ioFalse)
+    }
   }
 
   //ランキング表示用にプレイ時間のカラムだけ全員分引っ張る
-  private def successPlayTickRankingUpdate(): Boolean = {
-    val ranklist = handleQueryError3(
-      {
-        DB.readOnly { implicit session =>
-          sql"""select name,playtick from seichiassist.playerdata order by playtick desc"""
-            .map(rs => {
-              import scala.util.chaining._
-              new RankData()
-                .tap(_.name = rs.string("name"))
-                .tap(_.playtick = rs.int("playtick"))
-            })
-            .toList()
-            .apply()
-        }
-      },
-      _ => return false)(identity).unsafeRunSync()
+  private def updatePlayTimeRanking: IO[Boolean] = {
+    val program = for {
+      ranklist <- EitherT(
+        handleQueryError3(
+          {
+            DB.readOnly { implicit session =>
+              sql"""select name,playtick from seichiassist.playerdata order by playtick desc"""
+                .map { rs =>
+                  import scala.util.chaining._
+                  new RankData()
+                    .tap(_.name = rs.string("name"))
+                    .tap(_.playtick = rs.int("playtick"))
+                }
+                .toList()
+                .apply()
+            }
+          },
+          _ => false)(identity)
+      )
+    } yield {
+      // TODO: 初期化時に一度だけ生成してオンラインのときは逐次的に更新するべきでは？
 
-    // TODO: 初期化時に一度だけ生成してオンラインのときはin-placeで更新するべきでは？
-    SeichiAssist.ranklist_playtick.clear()
-    SeichiAssist.ranklist_playtick.addAll(ranklist.merge)
-    true
+      SeichiAssist.ranklist_playtick.clear()
+      SeichiAssist.ranklist_playtick.addAll(ranklist)
+      true
+    }
+
+    program.value.map(_.merge)
   }
 
   //ランキング表示用に投票数のカラムだけ全員分引っ張る
-  private def successVoteRankingUpdate(): Boolean = {
-    val ranklist = handleQueryError3(
-      {
-        DB.readOnly { implicit session =>
-          sql"""select name,p_vote from seichiassist.playerdata order by p_vote desc"""
-            .map(rs => {
-              import scala.util.chaining._
-              new RankData()
-                .tap(_.name = rs.string("name"))
-                .tap(_.playtick = rs.int("p_vote"))
-            })
-            .list()
-            .apply()
-        }
-      },
-      _ => return false)(identity
-    ).unsafeRunSync()
+  private def updateVoteCountRanking: IO[Boolean] = {
+    val program = for {
+      ranklist <- EitherT(
+        handleQueryError3(
+          {
+            DB.readOnly { implicit session =>
+              sql"""select name,p_vote from seichiassist.playerdata order by p_vote desc"""
+                .map { rs =>
+                  import scala.util.chaining._
+                  new RankData()
+                    .tap(_.name = rs.string("name"))
+                    .tap(_.playtick = rs.int("p_vote"))
+                }
+                .list()
+                .apply()
+            }
+          },
+          _ => false
+        )(identity)
+      )
+    } yield {
+      SeichiAssist.ranklist_p_vote.clear()
+      SeichiAssist.ranklist_p_vote.addAll(ranklist)
+      true
+    }
 
-    SeichiAssist.ranklist_p_vote.clear()
-    SeichiAssist.ranklist_p_vote.addAll(ranklist.merge)
-    true
+    program.value.map(_.merge)
   }
 
   //ランキング表示用に上げたりんご数のカラムだけ全員分引っ張る
-  private def successAppleNumberRankingUpdate(): Boolean = {
+  private def updateAppleNumberRanking: IO[Boolean] = {
     val program = for {
-      list <- handleQueryError3({
+      list <- EitherT(handleQueryError3(
         DB.readOnly { implicit session =>
           sql"select name,p_apple from seichiassist.playerdata order by p_apple desc"
-            .map(rs => {
+            .map { rs =>
               import scala.util.chaining._
 
               new RankData()
                 .tap(_.name = rs.string("name"))
                 .tap(_.p_apple = rs.int("p_apple"))
-            })
+            }
             .list()
             .apply()
-        }
-      }, _ => return false)(identity)
-      sum <- handleQueryError3({
+        }, _ => false)(identity))
+      sum <- EitherT(handleQueryError3({
         DB.readOnly { implicit session =>
           sql"""SELECT SUM(p_apple) as sum FROM seichiassist.playerdata"""
             .map(rs => rs.long("sum"))
@@ -401,15 +412,15 @@ class PlayerDataManipulator {
             .apply()
             .get
         }
-      }, _ => return false)(identity)
+      }, _ => false)(identity))
     } yield {
       SeichiAssist.ranklist_p_apple.clear()
-      SeichiAssist.ranklist_p_apple.addAll(list.merge)
-      SeichiAssist.allplayergiveapplelong = sum.merge
+      SeichiAssist.ranklist_p_apple.addAll(list)
+      SeichiAssist.allplayergiveapplelong = sum
+      true
     }
 
-    program.unsafeRunSync()
-    true
+    program.value.map(_.merge)
   }
 
   //全員に詫びガチャの配布
