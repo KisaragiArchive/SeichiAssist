@@ -458,7 +458,7 @@ class SeichiAssist extends JavaPlugin() {
     itemMigrationSystem.entryPoints.runWorldMigration.unsafeRunSync()
 
     SeichiAssist.databaseGateway = DatabaseGateway.createInitializedInstance(
-      SeichiAssist.seichiAssistConfig.getURL, SeichiAssist.seichiAssistConfig.getDB,
+      SeichiAssist.seichiAssistConfig.getURL,
       SeichiAssist.seichiAssistConfig.getID, SeichiAssist.seichiAssistConfig.getPW
     )
 

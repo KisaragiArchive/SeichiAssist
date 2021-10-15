@@ -22,8 +22,6 @@ import static com.github.unchama.util.ActionStatus.Ok;
 public class DatabaseGateway {
     //TODO: 直接SQLに変数を連結しているが、順次PreparedStatementに置き換えていきたい
 
-    public @NotNull
-    final String databaseName = "seichiassist";
     // TODO これらはこのクラスに入るべきではなさそう(プラグインクラスに入れるべき)
     public final PlayerDataManipulator playerDataManipulator;
     public final GachaDataManipulator gachaDataManipulator;
@@ -40,7 +38,7 @@ public class DatabaseGateway {
 
     private final SeichiAssist plugin = SeichiAssist.instance();
 
-    private DatabaseGateway(@NotNull String databaseUrl, @Deprecated @NotNull String databaseName, @NotNull String loginId, @NotNull String password) {
+    private DatabaseGateway(@NotNull String databaseUrl, @NotNull String loginId, @NotNull String password) {
         this.databaseUrl = databaseUrl;
         this.loginId = loginId;
         this.password = password;
@@ -52,20 +50,15 @@ public class DatabaseGateway {
     }
 
     public static DatabaseGateway createInitializedInstance(@NotNull String databaseUrl,
-                                                            @NotNull String databaseName,
                                                             @NotNull String loginId,
                                                             @NotNull String password) {
-        final DatabaseGateway instance = new DatabaseGateway(databaseUrl, databaseName, loginId, password);
+        final DatabaseGateway instance = new DatabaseGateway(databaseUrl, loginId, password);
 
         if (instance.connectToDatabase() == Fail) {
             instance.plugin.getLogger().info("データベース初期処理にエラーが発生しました");
         }
 
         return instance;
-    }
-
-    public ResultSet executeQuery(String query) throws SQLException {
-        return stmt.executeQuery(query);
     }
 
     private ActionStatus createDatabaseDriverInstance() {
@@ -121,25 +114,6 @@ public class DatabaseGateway {
         }
 
         return Ok;
-    }
-
-    /**
-     * コマンド実行関数
-     *
-     * @param command コマンド内容
-     * @return 成否
-     */
-    public ActionStatus executeUpdate(String command) {
-        ensureConnection();
-        try {
-            stmt.executeUpdate(command);
-            return Ok;
-        } catch (SQLException e) {
-            java.lang.System.out.println("sqlクエリの実行に失敗しました。以下にエラーを表示します");
-            e.getMessage();
-            e.printStackTrace();
-            return Fail;
-        }
     }
 
     /**

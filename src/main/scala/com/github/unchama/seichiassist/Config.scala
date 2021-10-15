@@ -51,7 +51,15 @@ final class Config private(val config: FileConfiguration) {
 
   def getMineStacklevel(i: Int): Int = getIntFailFast("minestacklevel" + i)
 
-  def getDB: String = config.getString("db")
+  //noinspection AccessorLikeMethodIsEmptyParen
+  def getDB(): String = {
+    val v = config.getString("db")
+    if (v != "seichiassist") {
+      SeichiAssist.instance.logger.warn("Database name has set explicitly in config. This version does not support database change.")
+    }
+
+    v
+  }
 
   def getTable: String = config.getString("table")
 
