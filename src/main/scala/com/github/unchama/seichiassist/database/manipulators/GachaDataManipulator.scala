@@ -1,73 +1,81 @@
 package com.github.unchama.seichiassist.database.manipulators
 
-import java.io.IOException
-import java.sql.SQLException
-
+import cats.data.EitherT
 import com.github.unchama.seichiassist.SeichiAssist
 import com.github.unchama.seichiassist.data.GachaPrize
 import com.github.unchama.seichiassist.database.DatabaseGateway
 import com.github.unchama.seichiassist.util.BukkitSerialization
-import com.github.unchama.util.ActionStatus
 import org.bukkit.Bukkit
+import scalikejdbc._
 
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.Iterable.iterableFactory
 
 class GachaDataManipulator(private val gateway: DatabaseGateway) {
-
-  import com.github.unchama.util.syntax.ResultSetSyntax._
-
   private val tableReference: String = gateway.databaseName + "." + "gachadata"
 
   //ガチャデータロード
   def loadGachaData(): Boolean = {
-    val prizes = ArrayBuffer[GachaPrize]()
-
-    val command = s"select * from $tableReference"
-    try {
-      gateway.executeQuery(command).recordIteration { lrs =>
-        val restoredInventory = BukkitSerialization.fromBase64(lrs.getString("itemstack"))
-        val restoredItemStack = restoredInventory.getItem(0)
-
-        val prize = new GachaPrize(restoredItemStack, lrs.getDouble("probability"))
-
-        prizes.append(prize)
-      }
-    } catch {
-      case e@(_: SQLException | _: IOException) =>
-        println("sqlクエリの実行に失敗しました。以下にエラーを表示します")
-        e.printStackTrace()
-        return false
-    }
+    val a = DatabaseRoutines.handleQueryError3(
+      {
+        DB.readOnly { implicit session =>
+          sql"""select * from $tableReference"""
+            .map { rs =>
+              val restoredInventory = BukkitSerialization.fromBase64(rs.string("itemstack"))
+              val restoredItemStack = restoredInventory.getItem(0)
+              new GachaPrize(restoredItemStack, rs.double("probability"))
+            }
+            .list()
+            .apply()
+        }
+      },
+      _ => return false
+    )(identity).unsafeRunSync().merge
 
     SeichiAssist.gachadatalist.clear()
-    SeichiAssist.gachadatalist.addAll(prizes)
+    SeichiAssist.gachadatalist.addAll(a)
     true
   }
 
   //ガチャデータセーブ
   def saveGachaData(): Boolean = {
+    val program = for {
+      _ <- EitherT(
+        DatabaseRoutines.handleQueryError3(
+          DB.localTx { implicit session =>
+            sql"""truncate table $tableReference"""
+              .update()
+              .apply()
+          },
+          _ => return false
+        )(identity)
+      )
+      _ <- EitherT(
+        DatabaseRoutines.handleQueryError3(
+          DB.localTx { implicit session =>
+            val params = SeichiAssist.gachadatalist.map { data =>
+              import scala.util.chaining._
 
-    //まずmysqlのガチャテーブルを初期化(中身全削除)
-    var command = s"truncate table $tableReference"
-    if (gateway.executeUpdate(command) == ActionStatus.Fail) {
-      return false
-    }
+              Seq(
+                data.probability,
+                Bukkit.getServer.createInventory(null, 9 * 1)
+                  .tap(_.setItem(0, data.itemStack))
+                  .pipe(BukkitSerialization.toBase64)
+              )
+            }
 
-    //次に現在のgachadatalistでmysqlを更新
-    for {gachadata <- SeichiAssist.gachadatalist} {
-      //Inventory作ってガチャのitemstackに突っ込む
-      val inventory = Bukkit.getServer.createInventory(null, 9 * 1)
-      inventory.setItem(0, gachadata.itemStack)
+            sql"""insert into $tableReference (probability, itemstack) values (?, ?)"""
+              .batch(params)
+              .apply()
+          },
+          _ => return false
+        )(identity)
+      )
+    } yield true
 
-      command = ("insert into " + tableReference + " (probability, itemstack)"
-        + " values"
-        + "(" + gachadata.probability + "," +
-        "'" + BukkitSerialization.toBase64(inventory) + "')")
-      if (gateway.executeUpdate(command) == ActionStatus.Fail) {
-        return false
-      }
-    }
-    true
+    program
+      .value
+      .unsafeRunSync()
+      .merge
   }
 
 
